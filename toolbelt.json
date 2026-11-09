@@ -1,0 +1,18 @@
+{
+	"id": "upkeep",
+	"name": "Upkeep",
+	"icon": "refresh-ccw-dot",
+	"version": "0.0.1",
+	"description": "Keeps the apps, runtimes, packages and git clones you choose up to date.",
+	"protocol": 0,
+	"entry": "index.ts",
+	"screens": [
+		{ "id": "monitored", "title": "Watching", "icon": "eye", "default": true },
+		{ "id": "discover", "title": "Discover", "icon": "radar" },
+		{ "id": "queue", "title": "Queue", "icon": "list-checks" },
+		{ "id": "activity", "title": "Activity", "icon": "clock" },
+		{ "id": "settings", "title": "Settings", "icon": "settings" }
+	],
+	"quickView": true,
+	"repo": "https://github.com/tkarakai/toolbelt"
+}

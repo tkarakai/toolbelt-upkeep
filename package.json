@@ -1,0 +1,17 @@
+{
+	"name": "toolbelt-upkeep",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Keeps the apps, runtimes, packages and git clones you choose up to date. A Toolbelt plugin.",
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit -p .",
+		"test": "bun test",
+		"build": "bun scripts/build.ts",
+		"install-plugin": "bun scripts/build.ts --install"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.4",
+		"typescript": "~5.9.3"
+	}
+}
