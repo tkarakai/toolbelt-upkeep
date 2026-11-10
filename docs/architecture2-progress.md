@@ -131,9 +131,9 @@ initial invalid tray geometry) were found, fixed by the host owner and retested.
 popover is a layer-3 window excluded from Orca's default window listing; own-PID CoreGraphics
 metadata supplied its exact window ID for successful targeted ScreenCaptureKit captures.
 
-A direct native blur-event test awaits the final shared tester `activateMain` debug hook;
-background automation intentionally preserves the key window. Escape close and explicit
-navigation close are verified. Full multi-display positioning remains human/environment
+Direct native blur was verified with the final shared tester `activateMain` hook: activating
+the main window without calling hide made the popover report `visible:false` through its
+real blur/closing path. Escape close and explicit navigation close are also verified. Full multi-display positioning remains human/environment
 acceptance, not claimed from this single-display fixture pass. All own tester instances
 were closed after each pass, with PIDs and debug-port closure checked.
 
@@ -164,3 +164,59 @@ staged/final readiness, all six surfaces, refusal of install while a scratch upd
 (original PID 62528 unchanged), uninterrupted completion, disable/re-enable/remove and
 retained data. Native screenshots cover the same rendering/runtime contract; the subsequent
 probe guard changes no UI definitions.
+
+Final native smoke used the exact probe-safe `c8d8c1f` archive (SHA-256 `4ab77de0088caaff7dcb034fe63ace2d1926ed4a210c98fc25a309c7aa596a19`) in a fresh
+`upkeep-final-c8d8` profile with namespaced browser state. All five native Alt+Cmd tab
+shortcuts returned their declared screens, the real 380×520 quick view rendered, and
+activating main triggered native blur-close. Actual 414px viewport table bounds were
+x=1..413 with zero document overflow. Final native/narrow screenshots are retained with
+the earlier parity captures. Both the native Bun PID and its own extraction launcher were
+checked and cleaned; no user app was closed. The final tester packaging now extracts/signs
+the real application instead of distributing that self-extractor wrapper.
+
+## Disposable real app updater rehearsal
+
+A full working-file copy of the Toolbelt feature checkout was staged outside Git, with its
+own build lock, HOME, configuration, temporary directory and disabled global shortcut.
+Only temporary package versions were changed: 0.1.0 and 0.1.1; no version change was committed.
+Both native app versions were built from that copy. The newer real app was packed with
+Toolbelt's own DMG builder, ad-hoc signed, mounted and checked for bundle id/version and
+strict code signature. A localhost GitHub-shaped feed served the DMG with a SHA-256 digest.
+The signed old real app was copied into the disposable installation directory. No official
+installation, public feed, stable release or user-owned process/data was changed.
+
+Production debug APIs and real renderer controls exercised the actual updater (no mocked
+fetch, shell, codesign, mount, copy, swap or relaunch):
+
+1. An enabled disposable plugin declaring `>=0.1.0 <0.1.1` blocked the target host update
+   before any DMG download. The old app remained PID 19735/version 0.1.0.
+2. After disabling that fixture, an explicitly reviewed 20-second Upkeep scratch update
+   ran while the holder downloaded/verified/mounted/copied the new app. Prepare refused
+   replacement while Upkeep was busy. App PID 19735 and Upkeep PID 19743 were unchanged;
+   the scratch operation completed 1.1.0 uninterrupted. The old bundle remained 0.1.0 and
+   no staged replacement directory remained. This verified the new shared app-upgrade
+   preparation/gating/resume path, not just plugin-package preparation.
+3. A deliberately incorrect SHA-256 caused the real download to fail verification. Old
+   app PID 47224/version 0.1.0 remained intact.
+4. With the correct digest, the real 34,039,853-byte DMG downloaded, mounted and passed
+   metadata/signature checks, then atomically replaced the app and relaunched through
+   `/usr/bin/open`. PID 51557/version 0.1.0 became PID 53053/version 0.1.1 in 5,860 ms.
+   The installed bundle's short version and strict signature passed; compiled application
+   code changed. A harmless installed environment fixture running under the NEW host
+   confirmed temporary HOME, `/usr/bin/true` shell and host version 0.1.1 survived relaunch.
+   Upkeep re-enabled on the new host and displayed its retained scratch version 1.1.0.
+
+Final DMG SHA-256: `0f8ac00425815fa9b63aca4752575be5db3c4df1a74b4c4c16579286af66fc92`.
+The full phase timings, source file hashes, environment proof and cleanup record are retained
+in `docs/evidence/architecture2-native/updater-rehearsal.json`. Reproducible fixture/driver/feed
+scripts and the staged build state remain in the bounded `/tmp/toolbelt-updater-*` test
+artifacts; their only external inputs were the copied feature source and pinned packages.
+The app updater's relaunch environment whitelist was corrected during this rehearsal so
+an isolated HOME/SHELL cannot fall back to the real user's shell startup files.
+
+All own app, plugin, launcher and fixture-server PIDs were stopped; ports 47841, 47851,
+47852 and 50329 closed; no own disk-image mount, updater work directory or staged old app
+remained. Only the two disposable app paths were unregistered from Launch Services.
+Electrobun logged nonfatal install-record bootstrap warnings for these unregistered temp
+app copies; Toolbelt's actual update, retained profile, signature and native relaunch checks
+passed. OS installation/bootstrap registration itself is outside this rehearsal's claim.
