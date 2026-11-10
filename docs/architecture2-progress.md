@@ -43,7 +43,7 @@ SDK candidate: `@toolbelt/sdk@0.2.0-dev.1`, source
 `https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.2.0-dev.1/toolbelt-sdk-0.2.0-dev.1.tgz`.
 SDK archive SHA-256: `712610f41c9e049274985d5dbad23dfb7d59a72c4c0aaff3b7c1aca3dc6dd68e`.
 
-Current verification: frozen dependency install, TypeScript check and all 45 tests pass
+Current verification: frozen dependency install, TypeScript check and all 46 tests pass
 on Bun 1.4.2/macOS arm64 (CI pins Bun 1.4.4). Package tests build both macOS target archives,
 check descriptor SHA-256/size, unpack outside the source tree with no node_modules, and
 exercise all six rendered surfaces with SDK runtime message validation. The same package
@@ -55,3 +55,10 @@ without modifying staged content. No installed software or official profile was 
 Visual/native tester checks remain pending the shared Toolbelt tester candidate; this is
 not yet a claim that every cross-repo architecture exit gate is complete. Final plugin
 archive hashes/source commit are in the generated release descriptor and the handoff.
+
+Additional packaged lifecycle regression starts an explicit scratch-file update, observes
+prepare refusal while busy, verifies the update finishes without interruption, then observes
+prepare readiness. Evaluation prerelease `architecture2-eval-5380065` pins implementation
+commit `5380065351b66c0305116549c99c69c0c90202d9`; both target archives are 34,517 bytes
+with SHA-256 `94a8a376eb62eab483cd533226e31fca07dad6cc119aa3fabccd7a86cc39293a`.
+Draft assets were downloaded and checked against the descriptor before prerelease publication.

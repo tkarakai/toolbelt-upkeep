@@ -123,6 +123,30 @@ test("clean release archive: all screens, opt-in, reversible Discover, scratch u
  await stop();
 }, 15000);
 
+test("packaged prepare refuses an unsafe scratch update and does not interrupt it", async () => {
+ await launch();
+ const version = join(root, "busy-version"); writeFileSync(version, "1.0.0\n");
+ event("screen:settings", "add-recipe");
+ const fields = { name: "Busy lifecycle fixture", version: `/bin/cat '${version}'`, latest: "/bin/echo 1.1.0", update: `/bin/sleep 0.5; /bin/echo 1.1.0 > '${version}'` };
+ for (const [field, value] of Object.entries(fields)) event("screen:settings", "field", { form: "recipe", field, value });
+ event("screen:settings", "recipe-save");
+ const item = () => JSON.parse(readFileSync(join(data, "items.json"), "utf8")).find((i: any) => i.name === fields.name);
+ await until(() => item()?.state.latest === "1.1.0");
+ event("screen:monitored", "review", { rowId: item().id });
+ await until(() => JSON.stringify(trees.get("screen:monitored")).includes("What will run"));
+ event("screen:monitored", "update");
+ send({ type: "prepare", requestId: "busy-upgrade", reason: "upgrade" });
+ await until(() => messages.some((m) => m.type === "prepared" && m.requestId === "busy-upgrade"));
+ expect(messages.find((m) => m.type === "prepared" && m.requestId === "busy-upgrade")).toMatchObject({ ready: false });
+ expect(readFileSync(version, "utf8").trim()).toBe("1.0.0");
+ await until(() => item().state.installed === "1.1.0");
+ expect(readFileSync(version, "utf8").trim()).toBe("1.1.0");
+ send({ type: "prepare", requestId: "finished-upgrade", reason: "upgrade" });
+ await until(() => messages.some((m) => m.type === "prepared" && m.requestId === "finished-upgrade"));
+ expect(messages.find((m) => m.type === "prepared" && m.requestId === "finished-upgrade")).toMatchObject({ ready: true });
+ await stop();
+});
+
 test("packaged migration preserves staged data, retries safely and rejects unknown schemas", async () => {
  const marker = join(data, "migration-marker"); writeFileSync(marker, "retain me");
  for (const fromSchema of [null, 1, 1, 2]) {
