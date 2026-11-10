@@ -145,3 +145,22 @@ or reach automatic software updates before promotion. Packaged regression render
 surfaces with overdue items, attempts Check all, waits past the normal three-second startup
 tick, and verifies no audit/check state or queued/running work changed. Active final startup
 retains the normal scheduler. Schema 1 migration still affects only host-staged data.
+
+Probe-safe candidate: `architecture2-eval-c8d8c1f`, source
+`c8d8c1f32412a5a4221e0e608a398404a7ec7c3d`:
+`https://github.com/tkarakai/toolbelt-upkeep/releases/download/architecture2-eval-c8d8c1f/toolbelt-release.json`.
+Both targets are 33,987 bytes, SHA-256
+`4ab77de0088caaff7dcb034fe63ace2d1926ed4a210c98fc25a309c7aa596a19`.
+Draft assets were downloaded and verified before prerelease publication (`latest=false`).
+Use a fresh isolated evaluation profile: immutable same-version changed-byte rejection
+correctly prevents replacing an earlier development candidate silently. The old SDK 0.2.0-dev.1
+remains pinned and compatible; probe mode is conveyed through the public lifecycle environment.
+
+Current validation: typecheck and 47 tests pass. The shell-init probe regression uses an
+executable scratch shell that creates a marker: probe startup does not invoke it, while
+active startup does, proving the fixture detects that external startup path. Public GitHub
+resolve/install with the latest host and this candidate again passed initial migration,
+staged/final readiness, all six surfaces, refusal of install while a scratch update ran
+(original PID 62528 unchanged), uninterrupted completion, disable/re-enable/remove and
+retained data. Native screenshots cover the same rendering/runtime contract; the subsequent
+probe guard changes no UI definitions.

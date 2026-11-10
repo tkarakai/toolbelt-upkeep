@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -23,9 +23,9 @@ async function until(check: () => boolean, ms = 5000) {
  }
 }
 const send = (message: unknown) => { if (!child || typeof child.stdin === "number" || !child.stdin) throw new Error("not running"); child.stdin.write(JSON.stringify(message) + "\n"); };
-async function launch(mode: "active" | "probe" = "active") {
+async function launch(mode: "active" | "probe" = "active", extraEnv: Record<string, string> = {}) {
  messages = []; trees = new Map();
- child = Bun.spawn([process.execPath, join(unpacked, "index.js")], { cwd: unpacked, env: { ...env, TOOLBELT_LIFECYCLE_MODE: mode }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+ child = Bun.spawn([process.execPath, join(unpacked, "index.js")], { cwd: unpacked, env: { ...env, TOOLBELT_LIFECYCLE_MODE: mode, ...extraEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
  const processChild = child;
  void (async () => {
   let buffer = "";
@@ -153,7 +153,10 @@ test("staged probe renders but never polls due items or accepts external jobs", 
  for (const item of items) { item.state.nextAt = 0; item.state.checkedAt = 123; }
  writeFileSync(file, JSON.stringify(items));
  const auditBefore = readFileSync(join(data, "audit.jsonl"), "utf8");
- await launch("probe");
+ const shell = join(root, "fixture-shell"); const marker = join(root, "shell-started");
+ writeFileSync(shell, '#!/bin/sh\nexec /usr/bin/touch "$UPKEEP_SHELL_MARKER"\n'); chmodSync(shell, 0o700);
+ const shellEnv = { SHELL: shell, UPKEEP_SHELL_MARKER: marker };
+ await launch("probe", shellEnv);
  expect(trees.size).toBe(6);
  event("screen:monitored", "check-all");
  // Beyond the normal three-second startup tick: every item is intentionally overdue.
@@ -161,6 +164,11 @@ test("staged probe renders but never polls due items or accepts external jobs", 
  expect(readFileSync(join(data, "audit.jsonl"), "utf8")).toBe(auditBefore);
  expect(JSON.parse(readFileSync(file, "utf8")).every((i: any) => i.state.checkedAt === 123)).toBe(true);
  expect(JSON.stringify(trees.get("screen:queue"))).toContain("Nothing running");
+ expect(existsSync(marker)).toBe(false);
+ await stop();
+ // Prove the fixture would detect normal login-path initialization.
+ await launch("active", shellEnv);
+ expect(existsSync(marker)).toBe(true);
  await stop();
 });
 
