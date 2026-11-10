@@ -62,3 +62,29 @@ prepare readiness. Evaluation prerelease `architecture2-eval-5380065` pins imple
 commit `5380065351b66c0305116549c99c69c0c90202d9`; both target archives are 34,517 bytes
 with SHA-256 `94a8a376eb62eab483cd533226e31fca07dad6cc119aa3fabccd7a86cc39293a`.
 Draft assets were downloaded and checked against the descriptor before prerelease publication.
+
+## Real host/GitHub integration
+
+The first published macOS archive carried pax extension metadata and the production
+installer correctly rejected it. Packaging now explicitly uses ustar and disables macOS
+copyfile metadata. No existing release asset was overwritten.
+
+Current candidate: `architecture2-eval-20be059`, source
+`20be05905e09dc0e7445f16b6f94080c95ffc9cd`:
+`https://github.com/tkarakai/toolbelt-upkeep/releases/download/architecture2-eval-20be059/toolbelt-release.json`.
+Both macOS target archives are 33,878 bytes, SHA-256
+`c5ca2835add9d98e87416129266e2d2a3174c286c7634505c46cadbafa856c98`.
+Downloaded draft bytes were checked against source commit/hash/size before publication as
+an explicit prerelease (`latest=false`). The earlier candidate is superseded for evaluation.
+
+Read-only imports of the current Toolbelt `PackageManager`, `resolveGithub` and `PluginHost`
+were exercised against that public GitHub prerelease in a temporary profile and HOME, with
+`SHELL=/usr/bin/true`. Passed: real release lookup/download/hash validation, initial migration,
+staged probe, final ready, all six SDK-validated surfaces, explicit scratch recipe review and
+update, refusal to disable while that update ran, completion without interruption, runtime
+disable/re-enable/removal, and default data retention. No app restart was used. This caught
+and coordinated a host fix to buffer startup badges until ready; pre-ready trees still reject.
+
+Native renderer screenshots, mouse/keyboard shortcuts, themes and menu-bar positioning
+remain shared tester acceptance work. The above is a genuine production-host/package test,
+not a visual acceptance claim.
