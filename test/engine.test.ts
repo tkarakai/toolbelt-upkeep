@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Engine, autoBlocker, backoff, hasUpdate, jitter, planBlocker } from "../lib/engine";
+import { Engine, autoBlocker, backoff, bulkUpdatable, hasUpdate, jitter, planBlocker } from "../lib/engine";
 import { askedForPassword, run } from "../lib/exec";
 import { DEFAULT_SETTINGS, Store } from "../lib/store";
 import type { Item } from "../lib/types";
@@ -17,6 +17,17 @@ function item(over: Partial<Item> = {}, state: Partial<Item["state"]> = {}): Ite
 }
 const on = { ...DEFAULT_SETTINGS, autoUpdates: true };
 const env = { onAC: true, hour: 3 };
+
+test("bulk updates exclude apps, major upgrades and items requiring individual review", () => {
+	const base = item({ kind: "package" });
+	expect(bulkUpdatable(base)).toBe(true);
+	for (const patch of [{ pinned: true }, { skip: "1.2.4" }, { kind: "app" as const }, { data: { auth: "1" } }, ...["custom", "sparkle", "go"].map((provider) => ({ provider }))]) {
+		expect(bulkUpdatable({ ...base, ...patch })).toBe(false);
+	}
+	for (const patch of [{ latest: "2.0.0" }, { needsAuth: true }, { blocked: "Local changes" }, { outdated: false }]) {
+		expect(bulkUpdatable({ ...base, state: { ...base.state, ...patch } })).toBe(false);
+	}
+});
 
 describe("automatic updates: only when everything allows it", () => {
 	test("off by default, and notify-only items never", () => {
@@ -109,6 +120,30 @@ describe("engine flows", () => {
 		expect(e.items).toEqual([]);
 		expect(e.jobs).toEqual([]);
 		expect(e.settings.autoUpdates).toBe(false);
+	});
+
+	test("ready shutdown freezes scheduling and new jobs until explicitly restarted", () => {
+		const { e } = setup();
+		expect(e.prepareShutdown()).toEqual({ ready: true });
+		expect(e.enqueue("scan", null, "you")).toBeNull();
+		e.tick(Date.now() + 365 * 24 * HOUR);
+		expect(e.active()).toEqual([]);
+	});
+
+	test("package shutdown defers queued and running updates without cancelling them", async () => {
+		const { e, file } = setup();
+		const slow = customCandidate({ name: "Lifecycle fixture", version: `cat '${file}'`, latest: "echo 1.1.0", update: `sleep 0.2; echo 1.1.0 > '${file}'` });
+		const [it] = e.add([slow], { reviewed: recipeHash(slow.data) });
+		await until(() => e.active().length === 0);
+		const job = e.enqueue("update", it, "you")!;
+		expect(e.prepareShutdown()).toMatchObject({ ready: false });
+		await until(() => job.state === "running");
+		expect(e.prepareShutdown()).toMatchObject({ ready: false });
+		expect(job.abort.signal.aborted).toBe(false);
+		await until(() => e.active().length === 0);
+		expect(job.state).toBe("done");
+		expect(readFileSync(file, "utf8").trim()).toBe("1.1.0");
+		expect(e.prepareShutdown()).toEqual({ ready: true });
 	});
 
 	test("add → check → update → verified, all in the audit log and job logs", async () => {

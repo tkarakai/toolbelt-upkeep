@@ -1,42 +1,64 @@
 # Toolbelt Upkeep
 
-Keeps the apps, runtimes, packages and git clones you choose up to date. A plugin for
-[Toolbelt](https://github.com/tkarakai/toolbelt).
+Keeps the apps, runtimes, packages and git clones you choose up to date. An independently
+packaged plugin for [Toolbelt](https://github.com/tkarakai/toolbelt).
 
-- **Discover**: scan this Mac (only when you ask) for Homebrew formulae and casks, Sparkle
-  apps, Node (nvm), Bun, Deno, uv, Rust, Go, Claude Code, global npm/uv/pipx/cargo packages,
-  and git clones, then choose what to watch.
-- **Watching**: checks on a schedule (every 6 hours by default) with a live countdown to each
-  item's next check and *Check now*. Shows end-of-life warnings and channels (LTS, beta).
-  Items can be pinned, have a version skipped, or be rolled back.
-- **Review & update**: shows the exact commands and the release notes for every version
-  since yours, then runs the update in a queue with live logs and cancel.
-- **Activity**: an audit log of every scan, check, update, rollback and setting change.
+- **Discover** reads this Mac only when asked: Homebrew, Sparkle apps, runtimes, global
+  packages and git clones. Choose what to watch; Watch/Stop watching is reversible.
+- **Watching** checks opted-in items on a schedule, with countdowns, channels, end-of-life
+  warnings, pins, skipped versions and rollback.
+- **Review & update** shows commands and release notes before a queued update.
+- **Queue**, **Activity**, **Settings** and menu-bar quick view retain the shipped behavior.
 
-Nothing is checked or changed until you choose. Updates are notify-only until you turn
-automatic updates on. Anything that needs a password, quits a running app, or runs your own
-commands never starts by itself. See [docs/design.md](docs/design.md).
+Nothing is checked or changed until you choose. Updates default to notify-only. Passwords,
+app quitting and custom commands never start unattended. See [docs/design.md](docs/design.md).
 
-Status: first version. It needs a Toolbelt with the protocol additions from
-[tkarakai/toolbelt#2](https://github.com/tkarakai/toolbelt/pull/2).
+## Architecture v2 evaluation
+
+The `feat/architecture2` branch targets Toolbelt architecture v2, not the official v1 app.
+Install a release by entering `tkarakai/toolbelt-upkeep` in v2's plugin manager, or open the
+built archive in the isolated **Toolbelt Plugin Tester**. Never copy this checkout into the
+installed official app's plugin folder. Runtime packages execute with the user's privileges;
+process isolation and a scratch profile are not a security sandbox.
 
 ## Development
 
 ```sh
-bun install
-bun run typecheck && bun test
-bun run build            # dist/upkeep/: what Toolbelt loads
-bun run install-plugin   # build, then copy to ~/Library/Application Support/Toolbelt/plugins/upkeep
+bun install --frozen-lockfile
+bun run typecheck
+bun test
+bun run build
 ```
 
-To run it from this checkout in a Toolbelt checkout, without installing it:
+The public SDK is pinned to its immutable candidate release asset in `package.json` and
+`bun.lock`. No sibling checkout or SDK source copy is required. Build outputs:
 
-```sh
-TOOLBELT_PLUGINS=~/dev/projects/toolbelt-upkeep TOOLBELT_CONFIG_DIR=/tmp/upkeep-trial bun run dev
-```
+- `dist/upkeep/`: bundled entry, migration entry, manifest and provenance notice.
+- `dist/toolbelt-upkeep-0.0.1-darwin-{arm64,x64}.tar.gz`: independently runnable archives.
+- `dist/toolbelt-release.json`: source commit, target filenames, sizes and SHA-256 hashes.
+- `dist/*.sha256`: checksum sidecars.
 
-Toolbelt runs `index.ts` directly with Bun. `TOOLBELT_CONFIG_DIR` keeps the trial's data
-(watched items, audit log) out of your real Toolbelt folder.
+The host provides Bun (`>=1.3.0`); the package bundles all JS dependencies. CI pins Bun in
+its workflow and unpacks/executes actual archives outside this source tree without ambient
+`node_modules`, with a minimal environment and temporary data/home. Tests only update
+scratch files through explicit custom recipes; they never update installed software.
 
-The plugin SDK is vendored in `sdk/` until Toolbelt publishes it as a package. Update it with
-`bun scripts/sync-sdk.ts <path to a toolbelt checkout>`.
+Schema 1 preserves the existing Upkeep files and screen IDs. Migration operates on the
+host's staged data copy and accepts only initialization or unchanged schema 1. Package
+upgrade/unload defers while any operation is queued/running and freezes scheduling once
+ready. Managed-directory rollback cannot undo provider changes to real software.
+
+For an explicit development import, **copy** an old profile's `data/upkeep` into an isolated
+tester profile's managed `data/upkeep` while the tester is stopped. Retain the original.
+There is no automatic import from the working official app.
+
+## Candidate publication
+
+Only local artifacts or explicit prereleases belong to architecture2 evaluation. Build
+from the exact clean source commit. Create a draft prerelease containing both archives,
+sidecars and `toolbelt-release.json`; download and verify the published draft bytes before
+publishing it as a prerelease with `--latest=false`. Never replace an existing asset/version
+or move the public stable feed. Final stable version/download naming is a later decision.
+
+See [implementation evidence](docs/architecture2-progress.md) for extraction provenance,
+parity checks and pending visual verification.

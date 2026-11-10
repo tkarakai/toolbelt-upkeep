@@ -1,8 +1,8 @@
 // Upkeep's screens, built from the engine's state. Dialogs belong to the screen they were
 // opened on.
-import type { Action, Dialog, LogLine, Node, Row, Tone } from "./sdk";
-import { relative } from "./sdk";
-import { hasUpdate, stepOf, type Engine, type Job } from "./lib/engine";
+import type { Action, Dialog, LogLine, Node, Row, Tone } from "@toolbelt/sdk";
+import { relative } from "@toolbelt/sdk";
+import { bulkUpdatable, hasUpdate, stepOf, type Engine, type Job } from "./lib/engine";
 import { show, tilde } from "./lib/exec";
 import type { AuditEntry } from "./lib/store";
 import { KIND_LABEL, POLICY_LABEL, type Candidate, type Item, type Kind, type Note, type Plan } from "./lib/types";
@@ -69,7 +69,7 @@ export function monitored(engine: Engine, surface: string): Node {
 	const q = ui.query[surface];
 	const items = engine.items.filter((it) => matches(q, it.name, it.location, it.provider, it.state.installed));
 	const updates = engine.updates();
-	const safe = updates.filter((it) => !it.state.blocked && !it.state.needsAuth && stepOf(it) !== "major" && !["sparkle", "go", "custom"].includes(it.provider));
+	const safe = updates.filter(bulkUpdatable);
 	const rows: Row[] = [...items]
 		.sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || Number(hasUpdate(b)) - Number(hasUpdate(a)) || a.name.localeCompare(b.name))
 		.map((it) => {
@@ -122,7 +122,7 @@ export function monitored(engine: Engine, surface: string): Node {
 		summary: engine.items.length ? bits.join(" · ") : "",
 		actions: [
 			{ id: "check-all", label: "Check all now", icon: "refresh-cw", disabled: !engine.items.length },
-			{ id: "update-safe", label: safe.length ? `Update ${safe.length} safe` : "Update safe", icon: "download", primary: safe.length > 0, disabled: !safe.length, confirm: `Update ${safe.map((i) => i.name).join(", ")}? Only items that need no password, aren't a major version and don't update in their own app.` },
+			{ id: "update-safe", label: safe.length ? `Update ${safe.length} safe` : "Update safe", icon: "download", primary: safe.length > 0, disabled: !safe.length, confirm: `Update ${safe.map((i) => i.name).join(", ")}? Only non-app items that need no password and aren't a major version. Review apps individually before updating.` },
 		],
 		children: [
 			{
@@ -138,16 +138,16 @@ export function monitored(engine: Engine, surface: string): Node {
 				],
 				rows,
 				actions: [
-					{ id: "check", label: "Check now", icon: "refresh-cw", inline: true },
-					{ id: "review", label: "Review & update", icon: "download", inline: true },
-					{ id: "notes", label: "Release notes", icon: "file-text" },
-					{ id: "settings", label: "Settings…", icon: "sliders-horizontal" },
-					{ id: "history", label: "History", icon: "clock" },
-					{ id: "skip", label: "Skip this version", icon: "skip-forward" },
-					{ id: "pin", label: "Pin at this version", icon: "pin" },
-					{ id: "unpin", label: "Unpin", icon: "pin-off" },
-					{ id: "rollback", label: "Roll back", icon: "undo-2", confirm: "Go back to the version before the last update?" },
-					{ id: "remove", label: "Stop watching", icon: "trash", tone: "destructive", confirm: "Stop watching this? Nothing is uninstalled." },
+					{ id: "check", key: "c", label: "Check now", icon: "refresh-cw", inline: true },
+					{ id: "review", key: "u", label: "Review & update", icon: "download", inline: true },
+					{ id: "notes", key: "n", label: "Release notes", icon: "file-text" },
+					{ id: "settings", key: "e", label: "Settings…", icon: "sliders-horizontal" },
+					{ id: "history", key: "h", label: "History", icon: "clock" },
+					{ id: "skip", key: "s", label: "Skip this version", icon: "skip-forward" },
+					{ id: "pin", key: "p", label: "Pin at this version", icon: "pin" },
+					{ id: "unpin", key: "p", label: "Unpin", icon: "pin-off" },
+					{ id: "rollback", key: "r", label: "Roll back", icon: "undo-2", confirm: "Go back to the version before the last update?" },
+					{ id: "remove", key: "x", label: "Stop watching", icon: "trash", tone: "destructive", confirm: "Stop watching this? Nothing is uninstalled." },
 				],
 				bulkActions: [
 					{ id: "check-many", label: "Check now", icon: "refresh-cw" },
@@ -182,7 +182,7 @@ export function discover(engine: Engine, surface: string): Node {
 					version: { text: c.installed ?? "—", mono: true },
 					notes: { text: watched ? "Watching" : (c.note ?? ""), tone: watched ? "success" : "muted", chips: others.map((o) => `also: ${label(o)}`) },
 				},
-				actions: watched ? [] : ["monitor"],
+				actions: watched ? ["remove"] : ["monitor"],
 				details: [
 					{ label: "Where", value: c.location ?? "—", mono: true },
 					...(c.description ? [{ label: "About", value: c.description }] : []),
@@ -210,7 +210,10 @@ export function discover(engine: Engine, surface: string): Node {
 					{ key: "notes", title: "" },
 				],
 				rows,
-				actions: [{ id: "monitor", label: "Watch", icon: "eye", inline: true }],
+				actions: [
+					{ id: "monitor", key: "w", label: "Watch", icon: "eye", inline: true },
+					{ id: "remove", key: "x", label: "Stop watching", icon: "eye-off", inline: true },
+				],
 				bulkActions: [{ id: "monitor-many", label: "Watch selected", icon: "eye", primary: true }],
 				empty: scanning
 					? { title: "Scanning…", description: "Looking at Homebrew, apps, runtimes, global packages and git clones.", icon: "radar" }
@@ -299,7 +302,7 @@ export function activity(engine: Engine, surface: string): Node {
 					{ key: "at", title: "When", align: "right" },
 				],
 				rows,
-				actions: [{ id: "log", label: "Show log", icon: "scroll-text", inline: true }],
+				actions: [{ id: "log", key: "l", label: "Show log", icon: "scroll-text", inline: true }],
 				empty: { title: q ? "Nothing matches" : "No activity yet", description: "Every scan, check, update and setting change is recorded here.", icon: "clock" },
 			},
 		],

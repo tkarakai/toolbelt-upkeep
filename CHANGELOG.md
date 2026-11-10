@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Architecture v2: independently packaged plugin with pinned public SDK, ready-to-run
+  release archives and hashes, schema-aware migration and safe unload/upgrade deferral.
+  Preserves shipped Sparkle build updates, keyboard shortcuts and Discover watch toggles.
+  Direct copying into an installed official Toolbelt profile has been removed.
+
 - First version, moved here from the Toolbelt repository: Discover (Homebrew, Sparkle apps,
   Node via nvm, Bun, Deno, uv, Rust, Go, Claude Code, global npm/uv/pipx/cargo packages, git
   clones; duplicates flagged), Watching (scheduled checks with countdowns, end-of-life,

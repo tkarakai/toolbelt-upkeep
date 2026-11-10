@@ -6,7 +6,8 @@ import { customCandidate, recipeHash } from "../providers/custom";
 import { blocker, parseStatus } from "../providers/git";
 import { parseCargoList, parseNpmLs, parseUvTools } from "../providers/packages";
 import { nodeTarget, nvmDefault, parseRustupCheck } from "../providers/runtimes";
-import { parseAppcast } from "../providers/sparkle";
+import type { Ctx, Item } from "../lib/types";
+import { sparkleProvider, parseAppcast } from "../providers/sparkle";
 
 describe("Homebrew", () => {
 	const info = {
@@ -140,4 +141,29 @@ test("custom recipes: editing a command changes the fingerprint", () => {
 	expect(c.id).toBe("custom:my-tool");
 	expect(recipeHash(c.data)).toBe(recipeHash({ ...c.data }));
 	expect(recipeHash({ ...c.data, update: "mytool up; rm -rf ~" })).not.toBe(recipeHash(c.data));
+});
+
+
+describe("Sparkle build updates", () => {
+	const item: Item = { id: "sparkle:cmux", provider: "sparkle", ref: "/fixture/cmux.app", name: "cmux", kind: "app", identity: "app:cmux.app", addedAt: 0, policy: "notify", state: { outdated: false, failures: 0, nextAt: 0 }, data: { app: "/fixture/cmux.app", feed: "https://fixture/appcast.xml" } };
+	const feed = (build: string) => `<rss><item><sparkle:version>${build}</sparkle:version><sparkle:shortVersionString>0.65.2</sparkle:shortVersionString><sparkle:fullReleaseNotesLink>https://fixture/notes</sparkle:fullReleaseNotesLink></item></rss>`;
+	const ctx = (build: string): Ctx => ({
+		run: async () => ({ code: 0, out: JSON.stringify({ CFBundleShortVersionString: "0.65.2", CFBundleVersion: "111" }), err: "", timedOut: false, cancelled: false }),
+		text: async () => feed(build),
+		output: async () => "",
+		json: async () => { throw new Error("Unexpected JSON request"); },
+		log: () => {},
+	});
+
+	test("same marketing version exposes the actual build change", async () => {
+		expect(await sparkleProvider.check(item, ctx("113"))).toMatchObject({ installed: "0.65.2 (build 111)", latest: "0.65.2 (build 113)", outdated: true });
+		for (const build of ["111", "110"]) expect((await sparkleProvider.check(item, ctx(build))).outdated).toBe(false);
+	});
+
+	test("release notes include same-version builds and respect the target", async () => {
+		const notes = await sparkleProvider.notes!(item, "0.65.2 (build 111)", "0.65.2 (build 113)", ctx("113"));
+		expect(notes).toMatchObject([{ version: "0.65.2 (build 113)", url: "https://fixture/notes" }]);
+		expect(await sparkleProvider.notes!(item, "0.65.2 (build 113)", "0.65.2 (build 113)", ctx("113"))).toEqual([]);
+		expect(await sparkleProvider.notes!(item, "0.65.2 (build 111)", "0.65.2 (build 112)", ctx("113"))).toEqual([]);
+	});
 });

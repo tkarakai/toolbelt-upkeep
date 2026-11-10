@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/architecture2]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -44,7 +44,11 @@ jobs:
         run: |
           bun run build
           test -s dist/upkeep/index.js
+          test -s dist/upkeep/migrate.js
+          test -s dist/toolbelt-release.json
           grep -q '"entry": "index.js"' dist/upkeep/toolbelt.json
+          cd dist
+          shasum -a 256 --check ./*.sha256
 
   secrets:
     name: Secrets

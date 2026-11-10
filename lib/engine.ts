@@ -56,6 +56,9 @@ export function stepOf(item: Item): Change {
 /** Does this item count as "has an update" (not pinned, not the skipped version)? */
 export const hasUpdate = (item: Item) => item.state.outdated && !item.pinned && !(item.skip && item.state.latest === item.skip);
 
+/** Bulk updates never cross a major version or quit an app without its individual review. */
+export const bulkUpdatable = (item: Item) => hasUpdate(item) && !item.state.blocked && !item.state.needsAuth && !item.data.auth && item.kind !== "app" && stepOf(item) !== "major" && !["sparkle", "go", "custom"].includes(item.provider);
+
 /**
  * Why an automatic update may not run for this item now — or null when it may. The plan-level
  * rules (password, running app, handoff, unverified) are checked again with the plan.
@@ -89,6 +92,8 @@ export class Engine {
 	audit: AuditEntry[];
 	private seq = 0;
 	private timer?: ReturnType<typeof setInterval>;
+	private initialTick?: ReturnType<typeof setTimeout>;
+	private quiescing = false;
 	readonly askpass: string;
 
 	constructor(
@@ -107,11 +112,23 @@ export class Engine {
 	}
 
 	start() {
+		this.quiescing = false;
+		this.stop();
 		this.timer = setInterval(() => this.tick(), 30_000);
-		setTimeout(() => this.tick(), 3000);
+		this.initialTick = setTimeout(() => this.tick(), 3000);
 	}
 	stop() {
 		clearInterval(this.timer);
+		clearTimeout(this.initialTick);
+	}
+
+	/** A package upgrade must never interrupt an external software change. */
+	prepareShutdown(): { ready: boolean; reason?: string } {
+		const active = this.active();
+		if (active.length) return { ready: false, reason: `Upkeep has ${active.length} queued or running operation(s). Wait for Queue to finish, or cancel them explicitly.` };
+		this.quiescing = true;
+		this.stop();
+		return { ready: true };
 	}
 
 	// ── persistence and audit ────────────────────────────────────────────
@@ -183,6 +200,7 @@ export class Engine {
 
 	// ── jobs ──────────────────────────────────────────────────────────────
 	enqueue(type: JobType, it: Item | null, by: By, target?: string): Job | null {
+		if (this.quiescing) return null;
 		if (it && this.jobs.some((j) => j.itemId === it.id && j.type === type && (j.state === "queued" || j.state === "running"))) return null;
 		const p = it ? provider(it.provider) : undefined;
 		const id = `${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${type}-${++this.seq}`;
@@ -207,6 +225,7 @@ export class Engine {
 	}
 
 	private pump() {
+		if (this.quiescing) return;
 		const running = this.jobs.filter((j) => j.state === "running");
 		for (const j of this.jobs) {
 			if (running.length >= MAX_RUNNING) break;

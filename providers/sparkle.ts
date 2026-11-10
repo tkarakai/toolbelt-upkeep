@@ -29,7 +29,7 @@ export function parseAppcast(xml: string): AppcastItem[] {
 			title: tag(it, "title"),
 			date: pub && !Number.isNaN(Date.parse(pub)) ? new Date(pub).toISOString().slice(0, 10) : undefined,
 			notes: notes ? htmlToText(notes) : undefined,
-			notesUrl: tag(it, "sparkle:releaseNotesLink"),
+			notesUrl: tag(it, "sparkle:releaseNotesLink") ?? tag(it, "sparkle:fullReleaseNotesLink"),
 			channel: tag(it, "sparkle:channel"),
 			minSystem: tag(it, "sparkle:minimumSystemVersion"),
 			url: attr(enclosure, "url"),
@@ -52,7 +52,12 @@ async function readPlist(app: string, ctx: Ctx): Promise<Plist | null> {
 	}
 }
 
-const display = (p: Plist) => p.CFBundleShortVersionString || p.CFBundleVersion || "?";
+// Preserve Sparkle's ordering identity in the visible version: vendors can publish
+// several builds under the same marketing version.
+const versionLabel = (short: string | undefined, build: string | undefined) =>
+	short && build && short !== build ? `${short} (build ${build})` : short || build || "?";
+const display = (p: Plist) => versionLabel(p.CFBundleShortVersionString, p.CFBundleVersion);
+const buildOf = (version: string) => version.match(/ \(build (.+)\)$/)?.[1];
 
 /** Channels: Sparkle items without a channel are the default; others ("beta") are opt-in. */
 const onChannel = (it: AppcastItem, channel: string | undefined) => !it.channel || it.channel === channel;
@@ -99,14 +104,18 @@ export const sparkleProvider: Provider = {
 		// Sparkle compares bundle versions (CFBundleVersion); people read the short version.
 		const installedBuild = p.CFBundleVersion ?? display(p);
 		if (!newest) return { installed: display(p), latest: display(p), outdated: false };
-		return { installed: display(p), latest: newest.short ?? newest.version, outdated: compare(newest.version, installedBuild) > 0 || (!!newest.short && compare(newest.short, display(p)) > 0) };
+		return { installed: display(p), latest: versionLabel(newest.short, newest.version), outdated: compare(newest.version, installedBuild) > 0 };
 	},
-	async notes(item, from, _to, ctx): Promise<Note[]> {
+	async notes(item, from, to, ctx): Promise<Note[]> {
 		const items = await appcast(item, ctx);
 		return items
-			.filter((it) => compare(it.short ?? it.version, from) > 0)
+			.filter((it) => {
+				const after = buildOf(from) ? compare(it.version, buildOf(from)!) > 0 : compare(it.short ?? it.version, from) > 0;
+				const through = buildOf(to) ? compare(it.version, buildOf(to)!) <= 0 : compare(it.short ?? it.version, to) <= 0;
+				return after && through;
+			})
 			.slice(0, 60)
-			.map((it) => ({ version: it.short ?? it.version, date: it.date, body: it.notes ?? (it.notesUrl ? `Release notes: ${it.notesUrl}` : ""), url: it.notesUrl }));
+			.map((it) => ({ version: versionLabel(it.short, it.version), date: it.date, body: it.notes ?? (it.notesUrl ? `Release notes: ${it.notesUrl}` : ""), url: it.notesUrl }));
 	},
 	async plan(item): Promise<Plan> {
 		return {

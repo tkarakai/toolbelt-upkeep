@@ -1,10 +1,10 @@
-// Upkeep: keeps what you choose up to date. See docs/upkeep.md.
+// Upkeep: keeps what you choose up to date. See docs/design.md.
 //
 // Nothing is checked or changed until you choose: a fresh install watches nothing, scanning
 // only reads, and updates are "notify only" until you turn automatic updates on (globally and
 // per item). Everything is recorded in the audit log (Activity).
-import { dataDir, definePlugin, type Context } from "./sdk";
-import { Engine, hasUpdate } from "./lib/engine";
+import { dataDir, definePlugin, type Context } from "@toolbelt/sdk";
+import { Engine, bulkUpdatable, hasUpdate } from "./lib/engine";
 import { initPath, quote, run, show, baseEnv } from "./lib/exec";
 import { Store, type Settings } from "./lib/store";
 import { POLICY_LABEL, type Item, type Policy } from "./lib/types";
@@ -82,6 +82,11 @@ function setSetting(field: string, value: string | boolean) {
 }
 
 ctx = definePlugin({
+	prepare: () => engine.prepareShutdown(),
+	stop: () => {
+		engine.stop();
+		if (pending) clearTimeout(pending);
+	},
 	async start(c) {
 		ctx = c;
 		await initPath();
@@ -116,7 +121,7 @@ ctx = definePlugin({
 					for (const i of engine.items) engine.enqueue("check", i, "you");
 					break;
 				case "update-safe":
-					for (const i of engine.updates()) if (!i.state.blocked && !i.state.needsAuth && !["sparkle", "go", "custom"].includes(i.provider)) engine.enqueue("update", i, "you", i.state.latest);
+					for (const i of engine.updates().filter(bulkUpdatable)) engine.enqueue("update", i, "you", i.state.latest);
 					c.toast("Queued; see Queue for progress");
 					break;
 				case "review":
