@@ -97,3 +97,51 @@ to 1.1.0 uninterrupted. Runtime disable/re-enable/remove and retained data then 
 This verified the coordinated host guard that avoids stopping the old plugin when its
 prepare hook refuses. No Toolbelt implementation is imported by this repository's tests;
 the bounded cross-repo extraction check used a separate temporary integration script.
+
+## Native tester acceptance
+
+The standalone native tester was copied out of its source checkout into a temporary HOME
+and launched there with embedded Bun, isolated packages/data/settings and debug port 47841.
+Its own app identity is `io.github.tkarakai.toolbelt.tester`; no official app was replaced.
+The installed plugin was the downloaded/hash-verified public evaluation archive, not source.
+Only disposable custom recipes, a fake Sparkle app Info.plist and a local appcast were used.
+
+Verified through the production renderer and native keyboard/mouse controls:
+
+- All five screens plus simulated and real native quick view.
+- Alt+Cmd+1–5 navigation, repeated Discover Enter Watch/Stop watching, U review and L logs.
+- Sparkle same-marketing-version build 101→102 display, matching build-only release notes
+  and the full-notes link; the Open/update action for the fake app was never executed.
+- Explicit review and Return runs only the scratch recipe; live Queue/logs, verified
+  scratch version 1.0.0→1.1.0 and persisted Activity/log dialog all rendered correctly.
+- Light/Graphite and dark/Nord themes; Cmd+ zoom to 110%, Cmd+0 reset; reduced motion
+  forces zero transition duration. Icons render (30 SVG elements), no broken images.
+- Native Edit select-all/copy/paste in the archive path field and actual archive selection,
+  publisher entry/approval and Open archive control return Upkeep to running.
+- Cmd+, opens shared Settings. Corrected tester frame and sidebar heights fit the available
+  727px area, including the footer. Actual native viewport 414px renders readable Name-only
+  table rows without document overflow or the earlier left clipping.
+- Real native list is 380×145; clicking Upkeep opens its 380×520 quick view. Escape returns
+  to list and another Escape hides after the closing animation. Initial invalid tray bounds
+  now use a visible work-area fallback; later actual tray bounds anchor the popover normally.
+
+Pixel evidence is retained under `docs/evidence/architecture2-native/`. During testing, host
+issues (startup badge ordering, ustar metadata, tester frame sizing, native Edit menu and
+initial invalid tray geometry) were found, fixed by the host owner and retested. Native
+popover is a layer-3 window excluded from Orca's default window listing; own-PID CoreGraphics
+metadata supplied its exact window ID for successful targeted ScreenCaptureKit captures.
+
+A direct native blur-event test awaits the final shared tester `activateMain` debug hook;
+background automation intentionally preserves the key window. Escape close and explicit
+navigation close are verified. Full multi-display positioning remains human/environment
+acceptance, not claimed from this single-display fixture pass. All own tester instances
+were closed after each pass, with PIDs and debug-port closure checked.
+
+## Probe startup safety
+
+Lifecycle probe startup now skips login-shell initialization and freezes the engine queue
+without starting either scheduling timer. A staged candidate must not check opted-in items
+or reach automatic software updates before promotion. Packaged regression renders all six
+surfaces with overdue items, attempts Check all, waits past the normal three-second startup
+tick, and verifies no audit/check state or queued/running work changed. Active final startup
+retains the normal scheduler. Schema 1 migration still affects only host-staged data.

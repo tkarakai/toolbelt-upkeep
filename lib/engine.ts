@@ -111,9 +111,11 @@ export class Engine {
 		chmodSync(this.askpass, 0o700);
 	}
 
-	start() {
-		this.quiescing = false;
+	start(mode: "active" | "probe" = process.env.TOOLBELT_LIFECYCLE_MODE === "probe" ? "probe" : "active") {
 		this.stop();
+		// A staged candidate must not poll or mutate external software before promotion.
+		this.quiescing = mode === "probe";
+		if (this.quiescing) return;
 		this.timer = setInterval(() => this.tick(), 30_000);
 		this.initialTick = setTimeout(() => this.tick(), 3000);
 	}

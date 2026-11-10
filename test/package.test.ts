@@ -23,9 +23,9 @@ async function until(check: () => boolean, ms = 5000) {
  }
 }
 const send = (message: unknown) => { if (!child || typeof child.stdin === "number" || !child.stdin) throw new Error("not running"); child.stdin.write(JSON.stringify(message) + "\n"); };
-async function launch() {
+async function launch(mode: "active" | "probe" = "active") {
  messages = []; trees = new Map();
- child = Bun.spawn([process.execPath, join(unpacked, "index.js")], { cwd: unpacked, env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+ child = Bun.spawn([process.execPath, join(unpacked, "index.js")], { cwd: unpacked, env: { ...env, TOOLBELT_LIFECYCLE_MODE: mode }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
  const processChild = child;
  void (async () => {
   let buffer = "";
@@ -144,6 +144,23 @@ test("packaged prepare refuses an unsafe scratch update and does not interrupt i
  send({ type: "prepare", requestId: "finished-upgrade", reason: "upgrade" });
  await until(() => messages.some((m) => m.type === "prepared" && m.requestId === "finished-upgrade"));
  expect(messages.find((m) => m.type === "prepared" && m.requestId === "finished-upgrade")).toMatchObject({ ready: true });
+ await stop();
+});
+
+test("staged probe renders but never polls due items or accepts external jobs", async () => {
+ const file = join(data, "items.json");
+ const items = JSON.parse(readFileSync(file, "utf8"));
+ for (const item of items) { item.state.nextAt = 0; item.state.checkedAt = 123; }
+ writeFileSync(file, JSON.stringify(items));
+ const auditBefore = readFileSync(join(data, "audit.jsonl"), "utf8");
+ await launch("probe");
+ expect(trees.size).toBe(6);
+ event("screen:monitored", "check-all");
+ // Beyond the normal three-second startup tick: every item is intentionally overdue.
+ await Bun.sleep(3200);
+ expect(readFileSync(join(data, "audit.jsonl"), "utf8")).toBe(auditBefore);
+ expect(JSON.parse(readFileSync(file, "utf8")).every((i: any) => i.state.checkedAt === 123)).toBe(true);
+ expect(JSON.stringify(trees.get("screen:queue"))).toContain("Nothing running");
  await stop();
 });
 

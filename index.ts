@@ -89,7 +89,8 @@ ctx = definePlugin({
 	},
 	async start(c) {
 		ctx = c;
-		await initPath();
+		// Login startup files can have external side effects; skip them during staging.
+		if (process.env.TOOLBELT_LIFECYCLE_MODE !== "probe") await initPath();
 		engine.start();
 		c.badge(engine.updates().length || null);
 	},
@@ -102,6 +103,7 @@ ctx = definePlugin({
 		quick: () => quick(engine),
 	},
 	async onEvent(surface, name, payload, c) {
+		if (process.env.TOOLBELT_LIFECYCLE_MODE === "probe") return;
 		const rowId: string | undefined = payload?.rowId;
 		const ids: string[] = payload?.rowIds ?? [];
 		const it = rowId ? engine.item(rowId) : undefined;
