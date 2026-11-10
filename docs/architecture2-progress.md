@@ -88,3 +88,12 @@ and coordinated a host fix to buffer startup badges until ready; pre-ready trees
 Native renderer screenshots, mouse/keyboard shortcuts, themes and menu-bar positioning
 remain shared tester acceptance work. The above is a genuine production-host/package test,
 not a visual acceptance claim.
+
+An additional production-host regression checks **package install during active work**,
+not only disabling: while an explicitly reviewed scratch recipe update was running,
+`PackageManager.install(candidate, true)` refused the upgrade. The original Upkeep PID
+remained unchanged (observed 53243 before and after refusal), and the same update completed
+to 1.1.0 uninterrupted. Runtime disable/re-enable/remove and retained data then passed.
+This verified the coordinated host guard that avoids stopping the old plugin when its
+prepare hook refuses. No Toolbelt implementation is imported by this repository's tests;
+the bounded cross-repo extraction check used a separate temporary integration script.
