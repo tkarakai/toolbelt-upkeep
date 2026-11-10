@@ -25,7 +25,7 @@ const packages = [];
 for (const target of manifest.requires.platforms) {
  const asset = `toolbelt-upkeep-${manifest.version}-${target}.tar.gz`;
  const archive = resolve("dist", asset);
- const tar = Bun.spawnSync(["tar", "-czf", archive, "-C", out, "toolbelt.json", "index.js", "migrate.js", "NOTICE"], { stdout: "pipe", stderr: "pipe" });
+ const tar = Bun.spawnSync(["tar", "--format=ustar", "-czf", archive, "-C", out, "toolbelt.json", "index.js", "migrate.js", "NOTICE"], { env: { ...process.env, COPYFILE_DISABLE: "1" }, stdout: "pipe", stderr: "pipe" });
  if (tar.exitCode !== 0) throw new Error(tar.stderr.toString());
  const bytes = readFileSync(archive);
  const sha256 = createHash("sha256").update(bytes).digest("hex");
