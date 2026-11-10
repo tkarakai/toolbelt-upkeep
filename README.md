@@ -1,27 +1,37 @@
 # Toolbelt Upkeep
 
-Keeps the apps, runtimes, packages and git clones you choose up to date. An independently
-packaged plugin for [Toolbelt](https://github.com/tkarakai/toolbelt).
+Upkeep keeps the apps, runtimes, packages and git clones you choose up to date. It is an
+independently packaged macOS plugin for [Toolbelt](https://github.com/tkarakai/toolbelt).
 
-- **Discover** reads this Mac only when asked: Homebrew, Sparkle apps, runtimes, global
-  packages and git clones. Choose what to watch; Watch/Stop watching is reversible.
-- **Watching** checks opted-in items on a schedule, with countdowns, channels, end-of-life
-  warnings, pins, skipped versions and rollback.
-- **Review & update** shows commands and release notes before a queued update.
-- **Queue**, **Activity**, **Settings** and menu-bar quick view retain the shipped behavior.
+## Use
 
-Nothing is checked or changed until you choose. Updates default to notify-only. Passwords,
-app quitting and custom commands never start unattended. See [docs/design.md](docs/design.md).
+In Toolbelt's plugin manager, enter `tkarakai/toolbelt-upkeep`, review the release and publisher,
+and approve execution. Select a release tag or enable prereleases when installing a prerelease.
+Toolbelt downloads the ready-to-run archive and manages installation, updates and removal.
+Plugin code runs with your user privileges; process isolation is not a security sandbox.
 
-## Architecture v2 evaluation
+- **Discover** scans only when asked. Watch the items you want; Stop watching removes monitoring
+  without uninstalling software.
+- **Watching** shows installed/newest versions, scheduled checks, channels, end-of-life warnings,
+  pins, skipped versions and available rollback actions.
+- **Review & update** shows commands and release notes before an update.
+- **Queue** shows running work, logs and cancellation. **Activity** preserves the audit trail.
+- **Settings** controls checking, automatic-update policy, discovery folders and custom recipes.
+  The menu-bar quick view summarizes updates and items needing attention.
 
-The `feat/architecture2` branch targets Toolbelt architecture v2, not the official v1 app.
-Install a release by entering `tkarakai/toolbelt-upkeep` in v2's plugin manager, or open the
-built archive in the isolated **Toolbelt Plugin Tester**. Never copy this checkout into the
-installed official app's plugin folder. Runtime packages execute with the user's privileges;
-process isolation and a scratch profile are not a security sandbox.
+A fresh installation watches nothing. Items default to notify-only and automatic updates are
+off globally. Passwords, app quitting and custom commands require attention. Custom commands
+must be reviewed and never run automatically. Bulk updates exclude items requiring individual
+review, including apps, major upgrades, blocked/auth-required items, pins and skipped versions.
 
-## Development
+Update the plugin through Toolbelt's plugin manager. Upkeep defers unloading or upgrading while
+work is queued or running; let Queue finish or explicitly cancel work before retrying. Disabling
+retains the package and data. Removal retains data unless you separately choose to delete it.
+Plugin data recovery does not undo software updates performed by its providers.
+
+## Develop and maintain
+
+Read [the architecture](docs/architecture.md) and [agent instructions](AGENTS.md).
 
 ```sh
 bun install --frozen-lockfile
@@ -30,35 +40,48 @@ bun test
 bun run build
 ```
 
-The public SDK is pinned to its immutable candidate release asset in `package.json` and
-`bun.lock`. No sibling checkout or SDK source copy is required. Build outputs:
+The public `@toolbelt/sdk` dependency is pinned in `package.json` and `bun.lock`. No Toolbelt
+source checkout is required. The host provides the Bun runtime; the build bundles JavaScript
+dependencies. Toolbelt does not build this source or install dependencies at runtime.
 
-- `dist/upkeep/`: bundled entry, migration entry, manifest and provenance notice.
-- `dist/toolbelt-upkeep-0.0.1-darwin-{arm64,x64}.tar.gz`: independently runnable archives.
-- `dist/toolbelt-release.json`: source commit, target filenames, sizes and SHA-256 hashes.
+Open a built archive in **Toolbelt Plugin Tester**, enter its publisher repository and approve
+execution. Use an isolated tester profile and temporary HOME/data, with fake feeds, scratch
+recipes and throwaway repositories. Check every screen and quick view, dialogs, keyboard
+shortcuts, themes, narrow layouts, zoom and lifecycle diagnostics. Never exercise updates
+against installed software or the person's working repositories.
+
+The test suite covers provider/version policy, engine safety and persistence, migration,
+and execution of actual archives outside this checkout without ambient `node_modules`.
+For changes, add coverage where behavior is owned: providers in `providers/`, orchestration
+in `lib/engine.ts`, UI definitions in `ui.ts`, events in `index.ts`, and packaging in `scripts/`.
+
+To update the SDK dependency, choose a public compatible SDK release asset, change the pinned
+dependency with Bun and commit the regenerated lockfile. Keep required capabilities and runtime
+requirements in `toolbelt.json` consistent with actual usage. Run the checks above and test the
+resulting archive with a compatible released tester. Do not copy SDK source into this repo.
+
+## Package and release
+
+`bun run build` produces:
+
+- `dist/upkeep/`: bundled `index.js`, `migrate.js`, manifest and provenance notice.
+- `dist/toolbelt-upkeep-<version>-darwin-{arm64,x64}.tar.gz`: target-specific ready-to-run packages.
+- `dist/toolbelt-release.json`: plugin/repository identity, source commit, target assets,
+  byte sizes and SHA-256 hashes.
 - `dist/*.sha256`: checksum sidecars.
 
-The host provides Bun (`>=1.3.0`); the package bundles all JS dependencies. CI pins Bun in
-its workflow and unpacks/executes actual archives outside this source tree without ambient
-`node_modules`, with a minimal environment and temporary data/home. Tests only update
-scratch files through explicit custom recipes; they never update installed software.
+Archives use ustar without macOS copyfile metadata. Keep packages immutable: never overwrite
+published bytes under an existing plugin version. Use a distinct version for changed package
+bytes. Version changes belong in a release PR, with `package.json`, manifest and changelog kept
+consistent. Publish only when explicitly authorized.
 
-Schema 1 preserves the existing Upkeep files and screen IDs. Migration operates on the
-host's staged data copy and accepts only initialization or unchanged schema 1. Package
-upgrade/unload defers while any operation is queued/running and freezes scheduling once
-ready. Managed-directory rollback cannot undo provider changes to real software.
+Build from the exact clean release commit after frozen dependency installation, typecheck and
+tests. Create a draft GitHub release containing the descriptor, both target archives and their
+checksum sidecars. Download the draft assets and check their bytes against the descriptor;
+unpack and run them with the supported host/tester before publishing. Mark prereleases
+explicitly and keep them out of the stable latest feed. Toolbelt resolves the descriptor and
+checks identity, target, compatibility and checksums before executing an approved package.
 
-For an explicit development import, **copy** an old profile's `data/upkeep` into an isolated
-tester profile's managed `data/upkeep` while the tester is stopped. Retain the original.
-There is no automatic import from the working official app.
-
-## Candidate publication
-
-Only local artifacts or explicit prereleases belong to architecture2 evaluation. Build
-from the exact clean source commit. Create a draft prerelease containing both archives,
-sidecars and `toolbelt-release.json`; download and verify the published draft bytes before
-publishing it as a prerelease with `--latest=false`. Never replace an existing asset/version
-or move the public stable feed. Final stable version/download naming is a later decision.
-
-See [implementation evidence](docs/architecture2-progress.md) for extraction provenance,
-parity checks and pending visual verification.
+Writable state belongs in the host-provided data directory. Schema 1 initialization and
+unchanged-schema migration are explicit no-ops; unknown schemas reject. When changing data
+formats, implement retry-safe migration, declare supported schemas and test failure/recovery.
