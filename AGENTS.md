@@ -55,7 +55,8 @@ Provider behavior belongs in `providers/` and provider tests; shared safety/sche
 that execute without a sibling checkout or ambient dependencies. Use Plugin Tester for screen,
 quick-view, dialog, keyboard, theme, narrow-layout and lifecycle checks with fake resources.
 
-Build from a clean exact source commit for publication. Verify downloaded draft release assets
-against descriptor hashes/sizes and run unpacked archives before publishing. Never overwrite
-published plugin-version bytes, execute publisher install/build scripts on the host, or copy
-this checkout directly into an installed application's plugin directory.
+Follow [docs/releases.md](docs/releases.md) for publication. There is no release script and CI
+does not publish. The runbook owns version/tag alignment, frozen assets, draft verification,
+native readiness, channel selection and recovery. Never overwrite published version bytes,
+execute publisher install/build scripts on the host, or copy this checkout directly into an
+installed application's plugin directory.

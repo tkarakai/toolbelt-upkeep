@@ -70,17 +70,11 @@ resulting archive with a compatible released tester. Do not copy SDK source into
   byte sizes and SHA-256 hashes.
 - `dist/*.sha256`: checksum sidecars.
 
-Archives use ustar without macOS copyfile metadata. Keep packages immutable: never overwrite
-published bytes under an existing plugin version. Use a distinct version for changed package
-bytes. Version changes belong in a release PR, with `package.json`, manifest and changelog kept
-consistent. Publish only when explicitly authorized.
-
-Build from the exact clean release commit after frozen dependency installation, typecheck and
-tests. Create a draft GitHub release containing the descriptor, both target archives and their
-checksum sidecars. Download the draft assets and check their bytes against the descriptor;
-unpack and run them with the supported host/tester before publishing. Mark prereleases
-explicitly and keep them out of the stable latest feed. Toolbelt resolves the descriptor and
-checks identity, target, compatibility and checksums before executing an approved package.
+`bun run build` creates local files only. There is no `bun run release` command, and CI does
+not publish. Follow [the release runbook](docs/releases.md) for the version PR, clean build,
+annotated tag, five-asset draft upload, downloaded-byte and native readiness checks, explicit
+stable/prerelease publication, real-host installation and failure recovery. Published bytes
+must never change under an existing plugin version. Publication requires explicit authorization.
 
 Writable state belongs in the host-provided data directory. Schema 1 initialization and
 unchanged-schema migration are explicit no-ops; unknown schemas reject. When changing data
