@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Non-interactive release PR preparation and verified CI publication through the shared SDK release tooling.
+
 - Independently packaged plugin with a pinned public SDK, bundled JavaScript dependencies,
   target release archives, checksums, compatibility metadata and schema-aware migration.
 - Discover Homebrew and Sparkle apps, runtimes and tools (Node through nvm, Bun, Deno, uv,

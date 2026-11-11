@@ -5,7 +5,7 @@
     "": {
       "name": "toolbelt-upkeep",
       "dependencies": {
-        "@toolbelt/sdk": "https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.2.0-dev.1/toolbelt-sdk-0.2.0-dev.1.tgz",
+        "@toolbelt/sdk": "https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.2.0-dev.5/toolbelt-sdk-0.2.0-dev.5.tgz",
       },
       "devDependencies": {
         "@types/bun": "^1.4.4",
@@ -14,7 +14,7 @@
     },
   },
   "packages": {
-    "@toolbelt/sdk": ["@toolbelt/sdk@https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.2.0-dev.1/toolbelt-sdk-0.2.0-dev.1.tgz", {}, "sha512-njklGGDJrlf89ZgOFK+Qmwo54UkSRd+ROPxSu2dZONZhknq+jG3EwlfSwGwVkatFxHqxb3lzqFNhZizR9TH14w=="],
+    "@toolbelt/sdk": ["@toolbelt/sdk@https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.2.0-dev.5/toolbelt-sdk-0.2.0-dev.5.tgz", { "bin": { "toolbelt-release": "./release/cli.js" } }, "sha512-ACMi1RhrXZBooP3T7BPBQ2QHuz1/5u1K+KcSh7kQKfJnb2WML61P4MUosNj+4aScAghyxNeRCHe/ZRwRKuyCaA=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

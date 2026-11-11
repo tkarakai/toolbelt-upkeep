@@ -98,8 +98,7 @@ includes bundled `migrate.js` and `NOTICE`. Per-target `.tar.gz` archives, check
 `toolbelt-release.json` are produced in `dist/`. The descriptor binds source commit, identity,
 version, target filenames, sizes and hashes. GitHub release assets are the distribution source;
 Toolbelt performs no dependency installation or plugin source build.
-The build is local-only and CI does not publish. [The release runbook](releases.md) specifies
-version ownership, exact assets, draft verification, native readiness and explicit publication.
+The build is local-only. [Release commands](releases.md) prepare a version PR; merging it authorizes CI publication after validation.
 
 Tests use temporary homes, scratch-file recipes and fixture feeds. They cover policy/auth
 boundaries, provider parsing, Sparkle builds/notes, queue/cancel/persistence, migration rejection,

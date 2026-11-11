@@ -37,8 +37,7 @@ Upkeep is a macOS Toolbelt plugin. Read [README.md](README.md) and
   operate Git/CI directly.
 - One agent per checkout. Stop if `git status` contains changes you did not make.
 - Work on a feature/fix branch, never commit directly to `main`. Open a PR and let CI pass.
-  The user handles main merges. Do not enable auto-merge or publish stable releases without
-  explicit authorization.
+  The user handles main merges. Merging a validated release PR authorizes CI publication; do not enable auto-merge or publish stable releases locally.
 - Add user-visible behavior changes to `## Unreleased` in `CHANGELOG.md`. Do not bump versions
   in feature PRs; version changes belong in a release PR. Preserve legal notices/provenance.
 - Workflow changes pin actions to full commit SHAs and keep permissions minimal. Allowed
@@ -55,8 +54,4 @@ Provider behavior belongs in `providers/` and provider tests; shared safety/sche
 that execute without a sibling checkout or ambient dependencies. Use Plugin Tester for screen,
 quick-view, dialog, keyboard, theme, narrow-layout and lifecycle checks with fake resources.
 
-Follow [docs/releases.md](docs/releases.md) for publication. There is no release script and CI
-does not publish. The runbook owns version/tag alignment, frozen assets, draft verification,
-native readiness, channel selection and recovery. Never overwrite published version bytes,
-execute publisher install/build scripts on the host, or copy this checkout directly into an
-installed application's plugin directory.
+Follow [docs/releases.md](docs/releases.md). Merging a validated release PR authorizes CI publication; ordinary feature merges never publish. Preserve immutable versions and native checks. Never copy this checkout into an installed application profile.

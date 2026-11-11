@@ -70,11 +70,7 @@ resulting archive with a compatible released tester. Do not copy SDK source into
   byte sizes and SHA-256 hashes.
 - `dist/*.sha256`: checksum sidecars.
 
-`bun run build` creates local files only. There is no `bun run release` command, and CI does
-not publish. Follow [the release runbook](docs/releases.md) for the version PR, clean build,
-annotated tag, five-asset draft upload, downloaded-byte and native readiness checks, explicit
-stable/prerelease publication, real-host installation and failure recovery. Published bytes
-must never change under an existing plugin version. Publication requires explicit authorization.
+Local builds create files only. Use the [release commands](docs/releases.md) to prepare a version PR. Merging the validated release PR authorizes CI publication after archive/native checks.
 
 Writable state belongs in the host-provided data directory. Schema 1 initialization and
 unchanged-schema migration are explicit no-ops; unknown schemas reject. When changing data
