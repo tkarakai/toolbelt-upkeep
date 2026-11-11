@@ -1,30 +1,57 @@
-# toolbelt-upkeep — notes for coding agents
+# toolbelt-upkeep — maintenance instructions
 
-Toolbelt Upkeep: a [Toolbelt](https://github.com/tkarakai/toolbelt) plugin that keeps what the
-person chooses up to date. macOS only. See `README.md` and `docs/design.md`.
+Upkeep is a macOS Toolbelt plugin. Read [README.md](README.md) and
+[docs/architecture.md](docs/architecture.md) before changing behavior.
 
-## Workflow (required)
+## Ownership and contracts
 
-- **Never commit to `main` directly.** Branch (`feat/…`, `fix/…`), open a pull request, let CI
-  pass, squash-merge. The PR title becomes the commit title on `main`. The `main` ruleset
-  enforces this (`.github/settings/`).
-- **One agent per checkout.** If `git status` shows changes you didn't make, stop and ask —
-  another session may be working here.
-- Add user-visible changes to `## Unreleased` in `CHANGELOG.md` in the same PR.
-- Don't bump the version in feature PRs; that happens in a release PR.
-- Workflow files: pin actions to full commit SHAs, keep `permissions` minimal. Only
-  GitHub-owned actions, `oven-sh/setup-bun` and `zizmorcore/zizmor-action` are allowed.
+- This repo owns Upkeep's implementation, providers, UI definitions, data schema, migrations,
+  dependencies, tests and ready-to-run packages. Toolbelt owns the generic host and renderer.
+- Consume the pinned public `@toolbelt/sdk` package. Do not copy SDK source or import from a
+  Toolbelt checkout. Change the SDK pin and Bun lockfile together and verify compatibility.
+- Keep manifest capabilities, runtime/host requirements, screens and packaged files consistent
+  with actual usage. Preserve `upkeep`, its screen IDs and persisted data identities unless a
+  change explicitly includes compatibility/migration handling.
+- Keep writable state in `dataDir()`. Treat installed package files as immutable. Data-format
+  changes require supported-schema declarations and retry-safe migration/recovery tests.
+- A staged lifecycle probe must not start login shells, checks, updates or external actions.
+  Keep the probe guards and packaged regressions intact.
+- Prepare for unload/upgrade must refuse queued/running work, then freeze scheduling and new
+  jobs once safe. Never solve a busy upgrade by cancelling a software update automatically.
 
-## Safety (required)
+## Safety
 
-- Upkeep updates real software. Never test by updating the person's own apps or tools. Use
-  `TOOLBELT_CONFIG_DIR` pointing at a scratch folder, and exercise updates with a custom recipe
-  or a throwaway git clone.
-- Keep the rules in `docs/design.md`: nothing runs before the person opts in; anything needing
-  a password, quitting an app, or running their own commands never runs unattended; built-in
-  recipes are argument lists, never shell strings.
+- Never test by updating the person's installed apps/tools or working repositories. Use
+  temporary HOME/data/configuration, fake feeds, scratch recipes and throwaway git clones.
+- Fresh installs watch nothing; scanning requires a request. Automatic updates are off by
+  default and require item policy too. Passwords, app quitting and custom commands never run
+  unattended. Keep provider/auth and bulk-update eligibility checks consistent with the UI.
+- Built-in recipes execute argument lists. Custom shell recipes are visibly unverified,
+  require review of the exact command fingerprint and remain manual.
+- Test cancellation only on disposable work. Managed-directory recovery does not undo
+  external software changes; preserve that distinction in UI and maintenance guidance.
 
-## Bun
+## Workflow
 
-- Use `bun <file>`, `bun test`, `bun install`, `bun run <script>`, `bunx <pkg>` — not node,
-  jest/vitest, npm/yarn/pnpm or npx.
+- Never use the no-mistakes tool, plugin, skill or pipeline. Implement, review, validate and
+  operate Git/CI directly.
+- One agent per checkout. Stop if `git status` contains changes you did not make.
+- Work on a feature/fix branch, never commit directly to `main`. Open a PR and let CI pass.
+  The user handles main merges. Merging a validated release PR authorizes CI publication; do not enable auto-merge or publish stable releases locally.
+- Add user-visible behavior changes to `## Unreleased` in `CHANGELOG.md`. Do not bump versions
+  in feature PRs; version changes belong in a release PR. Preserve legal notices/provenance.
+- Workflow changes pin actions to full commit SHAs and keep permissions minimal. Allowed
+  actions are GitHub-owned actions, `oven-sh/setup-bun` and `zizmorcore/zizmor-action`.
+
+## Checks and packaging
+
+Use Bun: `bun install --frozen-lockfile`, `bun run typecheck`, `bun test`, `bun run build`.
+Do not substitute npm/yarn/pnpm, Node test runners or npx. Run checks appropriate to the change;
+for provider/runtime/package changes, run the full checks and exercise the actual archive.
+
+Provider behavior belongs in `providers/` and provider tests; shared safety/scheduling in
+`lib/engine.ts`; UI definitions in `ui.ts`; event handling in `index.ts`. Preserve package tests
+that execute without a sibling checkout or ambient dependencies. Use Plugin Tester for screen,
+quick-view, dialog, keyboard, theme, narrow-layout and lifecycle checks with fake resources.
+
+Follow [docs/releases.md](docs/releases.md). Merging a validated release PR authorizes CI publication; ordinary feature merges never publish. Preserve immutable versions and native checks. Never copy this checkout into an installed application profile.

@@ -1,0 +1,10 @@
+Toolbelt Upkeep
+Source: https://github.com/tkarakai/toolbelt-upkeep
+
+Original Upkeep implementation and provider engine are maintained in this repository.
+Architecture v2 reconciles the complete shipped Toolbelt implementation from
+https://github.com/tkarakai/toolbelt/tree/229bd64b20599f621589e03e17d36ee72c604ff5/plugins/upkeep
+including changes in Toolbelt PRs #10, #12 and #13. Git history preserves contributors.
+This notice records provenance and does not grant additional redistribution rights.
+
+The public Toolbelt SDK is consumed as a pinned dependency and bundled in the executable.

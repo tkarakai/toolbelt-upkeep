@@ -1,0 +1,21 @@
+{
+  "name": "toolbelt-upkeep",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Keeps the apps, runtimes, packages and git clones you choose up to date. A Toolbelt plugin.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "bun test",
+    "build": "bun scripts/build.ts",
+    "release:plugin": "bun run --bun toolbelt-release plugin",
+    "release:plugin:retry": "bun run --bun toolbelt-release plugin:retry"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@toolbelt/sdk": "https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.2.0-dev.5/toolbelt-sdk-0.2.0-dev.5.tgz"
+  }
+}

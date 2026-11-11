@@ -1,0 +1,66 @@
+{
+	"id": "upkeep",
+	"name": "Upkeep",
+	"icon": "refresh-ccw-dot",
+	"version": "0.0.1",
+	"description": "Keeps the apps, runtimes, packages and git clones you choose up to date.",
+	"protocol": 1,
+	"entry": "index.ts",
+	"screens": [
+		{
+			"id": "monitored",
+			"title": "Watching",
+			"icon": "eye",
+			"default": true
+		},
+		{
+			"id": "discover",
+			"title": "Discover",
+			"icon": "radar"
+		},
+		{
+			"id": "queue",
+			"title": "Queue",
+			"icon": "list-checks"
+		},
+		{
+			"id": "activity",
+			"title": "Activity",
+			"icon": "clock"
+		},
+		{
+			"id": "settings",
+			"title": "Settings",
+			"icon": "settings"
+		}
+	],
+	"quickView": true,
+	"repo": "tkarakai/toolbelt-upkeep",
+	"formatVersion": 1,
+	"requires": {
+		"host": ">=0.1.0",
+		"bun": ">=1.3.0",
+		"platforms": [
+			"darwin-arm64",
+			"darwin-x64"
+		]
+	},
+	"capabilities": {
+		"required": [
+			"ui.core",
+			"ui.action-key",
+			"lifecycle"
+		],
+		"optional": []
+	},
+	"data": {
+		"schema": 1,
+		"supports": [
+			1
+		]
+	},
+	"assets": {},
+	"migration": {
+		"entry": "migrate.js"
+	}
+}
