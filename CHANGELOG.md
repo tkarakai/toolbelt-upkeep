@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.1.0 — 2026-11-11
 - Non-interactive release PR preparation and verified CI publication through the shared SDK release tooling.
 
 - Independently packaged plugin with a pinned public SDK, bundled JavaScript dependencies,
