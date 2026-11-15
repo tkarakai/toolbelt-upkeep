@@ -13,13 +13,26 @@ is diagnostic output. UI is a declarative tree rendered by Toolbelt, without plu
 JavaScript. The manifest declares format/protocol versions, compatibility, capabilities and
 surfaces. SDK build version is diagnostic rather than an exact host-version match.
 
-The stable plugin id is `upkeep`. Screens are `monitored` (Watching), `discover`, `queue`,
-`activity` and `settings`, with a `quick` surface for the menu bar. `index.ts` handles events and
-connects the SDK to Store and Engine. `ui.ts` builds the screen trees, action keys, forms,
-review/log/history dialogs and quick view. Surface queries and dialogs live in plugin memory;
-Toolbelt owns renderer selection, scroll and other immediate UI state.
+The stable plugin id is `upkeep`. Screens are `monitored` (titled Updates), `discover`,
+`activity` and `settings`, with a `quick` surface for the menu bar. The former `queue` screen was
+removed; running work is the top of Activity. `index.ts` handles events and connects the SDK to
+Store and Engine. `ui.ts` builds the screen trees, action keys, forms, run cards,
+review/bulk/log/history dialogs and quick view. Surface queries, filters, dialogs and run-card
+dismissal live in plugin memory; Toolbelt owns renderer selection, scroll and other immediate UI
+state.
 
-Required capabilities are `ui.core`, `ui.action-key` and `lifecycle`. `toolbelt.json` declares
+Every request is a *run* (`Engine.startRun`/`batch`): a scan, "check all", a batch of updates, one
+update or one scheduled tick. Its jobs carry the run id, and when the last one ends the engine
+summarizes it (`summarize`) and, for runs of several jobs, records one `run` audit entry. The
+surface that started a run shows a card with its progress and outcome; rows show a pulsing
+status dot; the review dialog follows an update it started. When the card isn't in view, a
+toast offers **Show**, which uses SDK navigation (allowed by the host only right after a user
+event) to open the outcome. A single status function (`statusOf`) decides an item's group, dot
+and actions; `reviewReason`/`updateActionFor` keep row confirmations consistent with bulk
+eligibility. Scans store a comparison with the previous scan (`ScanDiff`) in `discovered.json`.
+
+Required capabilities are `ui.core`, `ui.action-key`, `ui.split-action`, `navigate` and
+`lifecycle`. `toolbelt.json` declares
 supported host/Bun ranges, macOS targets and data schema support. The package bundles its
 JavaScript dependencies and uses host-provided runtime paths, not sibling checkouts.
 
@@ -29,7 +42,7 @@ JavaScript dependencies and uses host-provided runtime paths, not sibling checko
 | --- | --- |
 | `index.ts` | SDK startup, surfaces, event dispatch and review/confirmation flows |
 | `ui.ts` | Declarative screens, tables, dialogs, quick view and action shortcuts |
-| `lib/engine.ts` | Queue, scheduling, safety policy, update/check/rollback orchestration and audit |
+| `lib/engine.ts` | Queue, runs and summaries, scan comparison, scheduling, safety policy, update/check/rollback orchestration and audit |
 | `lib/store.ts` | Managed JSON files, audit rotation and per-job logs |
 | `lib/types.ts` | Items, providers, plans, steps and execution context |
 | `lib/exec.ts` | PATH discovery, direct command execution, streaming, timeouts and cancellation |
@@ -58,7 +71,9 @@ The engine runs at most three jobs concurrently. Item/provider groups serialize 
 work. Jobs expose live logs and explicit cancellation. Checks use stored deadlines, interval
 jitter and failure backoff. Active startup schedules a first tick after three seconds and
 subsequent ticks every 30 seconds; the default item interval is six hours. Jobs are in memory;
-settings, items, discovered results, audit and logs persist.
+settings, items, discovered results (with the last scan comparison), audit and logs persist.
+Audit entries may carry an optional `run` id, and runs of several jobs add a `run` entry; both
+are additive to schema 1, and older `started` entries are hidden in Activity.
 
 Items sharing an identity are linked across providers and rechecked after updates. Bulk
 eligibility is shared by the UI and event handler. Sparkle compares bundle versions while

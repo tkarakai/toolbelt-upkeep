@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Engine, autoBlocker, backoff, bulkUpdatable, hasUpdate, jitter, planBlocker } from "../lib/engine";
+import { Engine, autoBlocker, backoff, bulkUpdatable, hasUpdate, jitter, planBlocker, scanDiff } from "../lib/engine";
 import { askedForPassword, run } from "../lib/exec";
 import { DEFAULT_SETTINGS, Store } from "../lib/store";
 import type { Item } from "../lib/types";
@@ -27,6 +27,17 @@ test("bulk updates exclude apps, major upgrades and items requiring individual r
 	for (const patch of [{ latest: "2.0.0" }, { needsAuth: true }, { blocked: "Local changes" }, { outdated: false }]) {
 		expect(bulkUpdatable({ ...base, state: { ...base.state, ...patch } })).toBe(false);
 	}
+});
+
+test("a scan is compared with the previous one and with what's watched", () => {
+	const c = (id: string, installed = "1", provider = "brew") => ({ id, provider, ref: id, name: id, kind: "package" as const, identity: id, data: {}, installed });
+	const prev = { at: 1, errors: {}, candidates: [c("kept"), c("bumped", "1"), c("gone"), c("flaky", "1", "npm")] };
+	const now = [c("kept"), c("bumped", "2"), c("new")];
+	const watched = [item({ id: "kept" }), item({ id: "uninstalled" }), item({ id: "npm-thing", provider: "npm" }), item({ id: "mine", provider: "custom" })];
+	const d = scanDiff(prev, now, { npm: "failed" }, watched);
+	expect(d).toEqual({ prevAt: 1, added: ["new"], gone: [prev.candidates[2]], changed: [{ id: "bumped", from: "1", to: "2" }], missing: ["uninstalled"] });
+	// The first scan has nothing to compare with, but still notices missing watched items.
+	expect(scanDiff(null, now, {}, watched)).toEqual({ added: [], gone: [], changed: [], missing: ["uninstalled", "npm-thing"] });
 });
 
 describe("automatic updates: only when everything allows it", () => {
@@ -157,11 +168,50 @@ describe("engine flows", () => {
 		expect(job.result).toBe("Updated 1.0.0 → 1.1.0");
 		expect(readFileSync(file, "utf8").trim()).toBe("1.1.0");
 		expect(it.state).toMatchObject({ installed: "1.1.0", outdated: false, previous: "1.0.0" });
-		expect(e.audit.map((a) => a.event)).toEqual(["added", "check", "started", "update"]);
+		expect(e.audit.map((a) => a.event)).toEqual(["added", "check", "update"]);
+		expect(e.store.readLog(job.id).join("\n")).toContain("Updating 1.0.0 → 1.1.0");
+		// One run per request, with its summary.
+		const run = e.runOf(job)!;
+		await until(() => !!run.endedAt);
+		expect(run.summary).toEqual({ text: "Updated 1.0.0 → 1.1.0", tone: "success" });
 		expect(e.store.readLog(job.id).join("\n")).toContain("updating");
 		// survives a restart
 		expect(new Store(e.store.dir).items()[0].state.installed).toBe("1.1.0");
 	});
+
+	test("a batch of checks is one run with one summary naming new updates", async () => {
+		const { e, cand, dir } = setup();
+		const other = join(dir, "other");
+		writeFileSync(other, "2.0.0\n");
+		const same = customCandidate({ name: "Current", version: `cat '${other}'`, latest: "echo 2.0.0", update: "true" });
+		const added = e.add([cand, same]);
+		for (const it of added) it.reviewed = recipeHash(it.data); // before the checks start
+		const first = e.runs.at(-1)!;
+		expect(first.title).toBe("Check 2 newly watched");
+		await until(() => !!first.endedAt);
+		expect(first.summary).toMatchObject({ text: "Checked 2 · 1 new update: Fake", tone: "info" });
+		expect(e.audit.filter((a) => a.event === "run")).toHaveLength(1);
+		expect(e.audit.filter((a) => a.event === "check").every((a) => a.run === first.id)).toBe(true);
+		// Checking again finds nothing new.
+		const again = e.batch("check", added, "you", "Check all")!;
+		await until(() => !!again.endedAt);
+		expect(again.summary?.text).toBe("Checked 2 · no new updates");
+	});
+
+	test("cancelling a run stops what's left of it", async () => {
+		const { e, file } = setup();
+		const slow = (n: string) => customCandidate({ name: n, version: `cat '${file}'`, latest: "echo 9.0.0", update: `sleep 5; echo 9.0.0 > '${file}'` });
+		const items = e.add([slow("A"), slow("B")], { reviewed: "x" });
+		for (const it of items) it.reviewed = recipeHash(it.data);
+		await until(() => items.every((i) => !!i.state.checkedAt));
+		const run = e.batch("update", items, "you", "Update 2 items")!;
+		await until(() => e.jobsOf(run).some((j) => j.state === "running"));
+		e.cancelRun(run.id);
+		await until(() => !!run.endedAt);
+		expect(e.jobsOf(run).every((j) => j.state === "cancelled")).toBe(true);
+		expect(run.summary?.text).toBe("Nothing updated · 2 cancelled");
+		expect(readFileSync(file, "utf8").trim()).toBe("1.0.0");
+	}, 15_000);
 
 	test("a recipe that changed since you reviewed it doesn't run", async () => {
 		const { e, cand, file } = setup();

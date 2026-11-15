@@ -43,8 +43,8 @@ async function launch(mode: "active" | "probe" = "active", extraEnv: Record<stri
  })();
  send({ type: "hello", protocol: 1, plugin: { id: "upkeep" }, host: { name: "contract-test", version: "0.1.0" } });
  await until(() => messages.some((m) => m.type === "ready"));
- for (const surface of ["monitored", "discover", "queue", "activity", "settings"].map((s) => `screen:${s}`).concat("quick")) send({ type: "open", surface });
- await until(() => trees.size === 6);
+ for (const surface of ["monitored", "discover", "activity", "settings"].map((s) => `screen:${s}`).concat("quick")) send({ type: "open", surface });
+ await until(() => trees.size === 5);
 }
 async function stop() {
  if (!child) return;
@@ -108,12 +108,16 @@ test("clean release archive: all screens, opt-in, reversible Discover, scratch u
  expect(readFileSync(version, "utf8").trim()).toBe("1.0.0");
  event("screen:monitored", "review", { rowId: items()[0].id });
  await until(() => JSON.stringify(trees.get("screen:monitored")).includes("What will run"));
- event("screen:monitored", "update");
+ // The review dialog stays open and follows the update to its verified result.
+ event("screen:monitored", "update-now");
  await until(() => items()[0].state.installed === "1.1.0");
+ await until(() => JSON.stringify(trees.get("screen:monitored")).includes("Integration fixture: updated"));
  await until(() => JSON.stringify(trees.get("screen:activity")).includes("Updated 1.0.0"));
  expect(readFileSync(version, "utf8").trim()).toBe("1.1.0");
  const audit = readFileSync(join(data, "audit.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
- expect(audit.map((a) => a.event)).toEqual(["added", "changed", "check", "started", "update"]);
+ // One entry per outcome: the command line is in the job log, not a separate "started" entry.
+ expect(audit.map((a) => a.event)).toEqual(["added", "changed", "check", "update"]);
+ expect(audit.at(-1).run).toBeString();
  expect(readFileSync(join(data, "logs", `${audit.at(-1).job}.log`), "utf8")).toContain("Updated 1.0.0 → 1.1.0");
  await stop(); await launch();
  expect(JSON.stringify(trees.get("screen:monitored"))).toContain("Integration fixture");
@@ -132,9 +136,13 @@ test("packaged prepare refuses an unsafe scratch update and does not interrupt i
  event("screen:settings", "recipe-save");
  const item = () => JSON.parse(readFileSync(join(data, "items.json"), "utf8")).find((i: any) => i.name === fields.name);
  await until(() => item()?.state.latest === "1.1.0");
- event("screen:monitored", "review", { rowId: item().id });
- await until(() => JSON.stringify(trees.get("screen:monitored")).includes("What will run"));
- event("screen:monitored", "update");
+ // One click from the row (no review): the row and a run card show the progress.
+ const table = (node: any): any => node?.type === "table" && node.id === "items" ? node : (node?.children ?? []).map(table).find(Boolean);
+ const row = () => table(trees.get("screen:monitored"))?.rows.find((r: any) => r.id === item().id);
+ await until(() => row()?.actions[0] === "update-own");
+ expect(table(trees.get("screen:monitored")).actions.find((a: any) => a.id === "update-own")).toMatchObject({ confirm: expect.any(String), menu: [{ id: "review" }] });
+ event("screen:monitored", "update-own", { rowId: item().id });
+ await until(() => JSON.stringify(trees.get("screen:monitored")).includes(`"title":"Update ${fields.name}"`));
  send({ type: "prepare", requestId: "busy-upgrade", reason: "upgrade" });
  await until(() => messages.some((m) => m.type === "prepared" && m.requestId === "busy-upgrade"));
  expect(messages.find((m) => m.type === "prepared" && m.requestId === "busy-upgrade")).toMatchObject({ ready: false });
@@ -157,13 +165,13 @@ test("staged probe renders but never polls due items or accepts external jobs", 
  writeFileSync(shell, '#!/bin/sh\nexec /usr/bin/touch "$UPKEEP_SHELL_MARKER"\n'); chmodSync(shell, 0o700);
  const shellEnv = { SHELL: shell, UPKEEP_SHELL_MARKER: marker };
  await launch("probe", shellEnv);
- expect(trees.size).toBe(6);
+ expect(trees.size).toBe(5);
  event("screen:monitored", "check-all");
  // Beyond the normal three-second startup tick: every item is intentionally overdue.
  await Bun.sleep(3200);
  expect(readFileSync(join(data, "audit.jsonl"), "utf8")).toBe(auditBefore);
  expect(JSON.parse(readFileSync(file, "utf8")).every((i: any) => i.state.checkedAt === 123)).toBe(true);
- expect(JSON.stringify(trees.get("screen:queue"))).toContain("Nothing running");
+ expect(JSON.stringify(trees.get("screen:activity"))).toContain("Nothing running");
  expect(existsSync(marker)).toBe(false);
  await stop();
  // Prove the fixture would detect normal login-path initialization.

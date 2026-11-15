@@ -4,6 +4,21 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSy
 import { join } from "node:path";
 import type { Candidate, Item } from "./types";
 
+/** What changed since the previous scan. Unknown to older versions, which ignore it. */
+export type ScanDiff = {
+	/** When the previous scan ran; absent on the first scan (nothing to compare with). */
+	prevAt?: number;
+	/** Candidate ids found now but not last time. */
+	added: string[];
+	/** Candidates found last time but not now. */
+	gone: Candidate[];
+	/** Candidates whose version changed. */
+	changed: { id: string; from?: string; to?: string }[];
+	/** Watched items this scan didn't find (their provider ran without errors). */
+	missing: string[];
+};
+export type Discovered = { at: number; candidates: Candidate[]; errors: Record<string, string>; diff?: ScanDiff };
+
 export type Settings = {
 	intervalHours: number;
 	/** Master switch for automatic updates. Off until you turn it on. */
@@ -31,12 +46,15 @@ export type Tone = "default" | "muted" | "success" | "warning" | "danger" | "inf
 export type AuditEntry = {
 	at: number;
 	/** What happened. */
-	event: "added" | "removed" | "changed" | "scan" | "check" | "update" | "rollback" | "skipped" | "cancelled" | "started";
+	event: "added" | "removed" | "changed" | "scan" | "check" | "update" | "rollback" | "skipped" | "cancelled" | "started" | "run";
 	item?: string;
 	name?: string;
 	text: string;
 	tone: Tone;
 	job?: string;
+	/** The run (one request: a scan, "check all", a batch of updates) this belongs to. A run
+	 *  of several jobs also records one `run` entry with its summary. Older entries have none. */
+	run?: string;
 	/** Who started it: you, the schedule, an automatic update. */
 	by?: "you" | "schedule" | "auto";
 	detail?: Record<string, string>;
@@ -71,8 +89,8 @@ export class Store {
 	saveItems = (items: Item[]) => this.write("items.json", items);
 	settings = (): Settings => ({ ...DEFAULT_SETTINGS, ...this.read<Partial<Settings>>("settings.json", {}) });
 	saveSettings = (s: Settings) => this.write("settings.json", s);
-	discovered = () => this.read<{ at: number; candidates: Candidate[]; errors: Record<string, string> } | null>("discovered.json", null);
-	saveDiscovered = (d: { at: number; candidates: Candidate[]; errors: Record<string, string> }) => this.write("discovered.json", d);
+	discovered = () => this.read<Discovered | null>("discovered.json", null);
+	saveDiscovered = (d: Discovered) => this.write("discovered.json", d);
 
 	audit(entry: AuditEntry) {
 		const file = join(this.dir, "audit.jsonl");

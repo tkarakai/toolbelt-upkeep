@@ -10,12 +10,14 @@ and approve execution. Select a release tag or enable prereleases when installin
 Toolbelt downloads the ready-to-run archive and manages installation, updates and removal.
 Plugin code runs with your user privileges; process isolation is not a security sandbox.
 
-- **Discover** scans only when asked. Watch the items you want; Stop watching removes monitoring
-  without uninstalling software.
-- **Watching** shows installed/newest versions, scheduled checks, channels, end-of-life warnings,
-  pins, skipped versions and available rollback actions.
-- **Review & update** shows commands and release notes before an update.
-- **Queue** shows running work, logs and cancellation. **Activity** preserves the audit trail.
+- **Updates** groups what you watch by what needs doing (needs you, ready, review first, up to
+  date, held back). **Update** is one click; **Review & update…** beside it shows commands and
+  release notes first. Progress shows on the row, in a card at the top and in the review dialog,
+  and every run ends with one summary of what changed.
+- **Discover** scans only when asked and shows what's new, gone or changed since the last scan,
+  including watched items it no longer finds. Stop watching never uninstalls software.
+- **Activity** shows what's running now (live logs, cancellation) above the audit history, one
+  entry per run with its items inside.
 - **Settings** controls checking, automatic-update policy, discovery folders and custom recipes.
   The menu-bar quick view summarizes updates and items needing attention.
 
@@ -25,7 +27,7 @@ must be reviewed and never run automatically. Bulk updates exclude items requiri
 review, including apps, major upgrades, blocked/auth-required items, pins and skipped versions.
 
 Update the plugin through Toolbelt's plugin manager. Upkeep defers unloading or upgrading while
-work is queued or running; let Queue finish or explicitly cancel work before retrying. Disabling
+work is queued or running; let it finish (Activity › Now) or explicitly cancel it before retrying. Disabling
 retains the package and data. Removal retains data unless you separately choose to delete it.
 Plugin data recovery does not undo software updates performed by its providers.
 

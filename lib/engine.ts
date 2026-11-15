@@ -3,7 +3,7 @@
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { askedForPassword, baseEnv, output, run, show } from "./exec";
-import { Store, type AuditEntry, type Settings, type Tone } from "./store";
+import { Store, type AuditEntry, type Discovered, type ScanDiff, type Settings, type Tone } from "./store";
 import { change, compare, policyAllows, type Change } from "./version";
 import type { Candidate, Check, Ctx, Item, Plan, Step } from "./types";
 import { PROVIDERS, provider } from "../providers";
@@ -30,6 +30,32 @@ export type Job = {
 	group: string;
 	target?: string;
 	abort: AbortController;
+	/** The run this job belongs to. */
+	run: string;
+	/** Checks: whether the item had an update, and which, before this check. */
+	before?: { update: boolean; latest?: string };
+	/** Checks: what this check found. */
+	found?: "new-update" | "update" | "ok" | "held";
+};
+
+/**
+ * One request and everything it started: a scan, "check all", a batch of updates, one update,
+ * one scheduled tick. It ends with one summary, shown where it started and in Activity.
+ */
+export type Run = {
+	id: string;
+	kind: JobType;
+	title: string;
+	by: By;
+	startedAt: number;
+	endedAt?: number;
+	jobs: string[];
+	summary?: { text: string; tone: Tone };
+	/** Scans: what changed since the previous scan. */
+	diff?: ScanDiff;
+	/** Where it was started (a surface), for showing its progress there. */
+	surface?: string;
+	dismissed?: boolean;
 };
 
 const MAX_RUNNING = 3;
@@ -87,8 +113,11 @@ export function planBlocker(plan: Plan): string | null {
 export class Engine {
 	items: Item[];
 	settings: Settings;
-	discovered: { at: number; candidates: Candidate[]; errors: Record<string, string> } | null;
+	discovered: Discovered | null;
 	jobs: Job[] = [];
+	runs: Run[] = [];
+	/** Called when a run finishes (all its jobs ended). */
+	onRunDone?: (run: Run) => void;
 	audit: AuditEntry[];
 	private seq = 0;
 	private timer?: ReturnType<typeof setInterval>;
@@ -127,7 +156,7 @@ export class Engine {
 	/** A package upgrade must never interrupt an external software change. */
 	prepareShutdown(): { ready: boolean; reason?: string } {
 		const active = this.active();
-		if (active.length) return { ready: false, reason: `Upkeep has ${active.length} queued or running operation(s). Wait for Queue to finish, or cancel them explicitly.` };
+		if (active.length) return { ready: false, reason: `Upkeep has ${active.length} queued or running operation(s). Wait for them to finish (Activity › Now), or cancel them explicitly.` };
 		this.quiescing = true;
 		this.stop();
 		return { ready: true };
@@ -139,7 +168,8 @@ export class Engine {
 	}
 
 	record(e: Omit<AuditEntry, "at">) {
-		const entry = { at: Date.now(), ...e };
+		const run = e.run ?? (e.job ? this.jobs.find((j) => j.id === e.job)?.run : undefined);
+		const entry: AuditEntry = { at: Date.now(), ...e, ...(run ? { run } : {}) };
 		this.audit.push(entry);
 		if (this.audit.length > 3000) this.audit.splice(0, this.audit.length - 2000);
 		try {
@@ -176,7 +206,7 @@ export class Engine {
 			this.record({ event: "added", item: it.id, name: it.name, text: `Now watching ${it.name} (${provider(it.provider)?.label ?? it.provider})`, tone: "info", by: "you" });
 		}
 		this.save();
-		for (const it of added) this.enqueue("check", it, "you");
+		this.batch("check", added, "you", added.length === 1 ? `Check ${added[0].name}` : `Check ${added.length} newly watched`);
 		this.changed();
 		return added;
 	}
@@ -201,19 +231,55 @@ export class Engine {
 	}
 
 	// ── jobs ──────────────────────────────────────────────────────────────
-	enqueue(type: JobType, it: Item | null, by: By, target?: string): Job | null {
+	/** Start a run; add jobs with `enqueue(…, run)`. A run left without jobs is dropped. */
+	startRun(kind: JobType, title: string, by: By, surface?: string): Run {
+		const run: Run = { id: `run-${Date.now().toString(36)}-${++this.seq}`, kind, title, by, startedAt: Date.now(), jobs: [], surface };
+		this.runs.push(run);
+		if (this.runs.length > 40) this.runs = this.runs.filter((r, i) => !r.endedAt || i >= this.runs.length - 40);
+		queueMicrotask(() => {
+			if (!run.jobs.length) this.runs = this.runs.filter((r) => r !== run);
+		});
+		return run;
+	}
+
+	/** One run with a job for each item (those that already have one are left out). */
+	batch(type: JobType, items: Item[], by: By, title: string, surface?: string, target?: (it: Item) => string | undefined): Run | null {
+		if (this.quiescing) return null;
+		const run = this.startRun(type, title, by, surface);
+		for (const it of items) this.enqueue(type, it, by, target?.(it), run);
+		return run.jobs.length ? run : null;
+	}
+
+	getRun = (id: string) => this.runs.find((r) => r.id === id);
+	runOf = (j: Job) => this.getRun(j.run);
+	jobsOf = (r: Run) => r.jobs.map((id) => this.jobs.find((j) => j.id === id)).filter((j): j is Job => !!j);
+
+	enqueue(type: JobType, it: Item | null, by: By, target?: string, run?: Run, surface?: string): Job | null {
 		if (this.quiescing) return null;
 		if (it && this.jobs.some((j) => j.itemId === it.id && j.type === type && (j.state === "queued" || j.state === "running"))) return null;
 		const p = it ? provider(it.provider) : undefined;
 		const id = `${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${type}-${++this.seq}`;
 		const verb = { scan: "Scan this Mac", check: "Check", update: "Update", rollback: "Roll back" }[type];
-		const job: Job = { id, type, itemId: it?.id, title: it ? `${verb} ${it.name}` : verb, by, state: "queued", queuedAt: Date.now(), lines: [], group: type === "scan" ? "scan" : p?.serial ? p.id : (it?.id ?? id), target, abort: new AbortController() };
+		const title = it ? `${verb} ${it.name}` : verb;
+		const r = run ?? this.startRun(type, title, by, surface);
+		const job: Job = { id, type, itemId: it?.id, title, by, state: "queued", queuedAt: Date.now(), lines: [], group: type === "scan" ? "scan" : p?.serial ? p.id : (it?.id ?? id), target, abort: new AbortController(), run: r.id };
+		r.jobs.push(id);
 		this.jobs.push(job);
-		const done = this.jobs.filter((j) => j.state !== "queued" && j.state !== "running");
-		if (done.length > 60) this.jobs = this.jobs.filter((j) => !done.slice(0, done.length - 60).includes(j));
+		// Keep finished jobs of unfinished runs; otherwise the newest 60.
+		const done = this.jobs.filter((j) => (j.state !== "queued" && j.state !== "running") && !!this.runOf(j)?.endedAt);
+		if (done.length > 60) {
+			const drop = new Set(done.slice(0, done.length - 60));
+			this.jobs = this.jobs.filter((j) => !drop.has(j));
+		}
 		this.changed();
 		queueMicrotask(() => this.pump());
 		return job;
+	}
+
+	/** Cancel what's left of a run: queued jobs don't start, running ones are stopped. */
+	cancelRun(id: string) {
+		const r = this.getRun(id);
+		if (r) for (const j of this.jobsOf(r)) this.cancel(j.id);
 	}
 
 	cancel(jobId: string) {
@@ -256,7 +322,23 @@ export class Engine {
 		j.tone = tone;
 		j.endedAt = Date.now();
 		this.log(j, result, tone === "danger" ? "danger" : tone === "success" ? "success" : "muted");
-		queueMicrotask(() => this.pump());
+		queueMicrotask(() => {
+			this.settle(j.run);
+			this.pump();
+		});
+	}
+
+	/** When the last job of a run ends: its summary, and one audit entry for runs of several. */
+	private settle(runId: string) {
+		const r = this.getRun(runId);
+		if (!r || r.endedAt) return;
+		const jobs = this.jobsOf(r);
+		if (jobs.some((j) => j.state === "queued" || j.state === "running")) return;
+		r.endedAt = Date.now();
+		r.summary = summarize(r, jobs, this);
+		if (jobs.length > 1) this.record({ event: "run", text: `${r.title}: ${r.summary.text}`, tone: r.summary.tone, by: r.by, run: r.id, detail: { kind: r.kind, jobs: String(jobs.length) } });
+		this.changed();
+		this.onRunDone?.(r);
 	}
 
 	/** What providers get: commands and fetches, logged to the job. */
@@ -329,11 +411,15 @@ export class Engine {
 				}
 			}),
 		);
-		this.discovered = { at: Date.now(), candidates, errors };
+		const diff = scanDiff(this.discovered, candidates, errors, this.items);
+		this.discovered = { at: Date.now(), candidates, errors, diff };
 		this.store.saveDiscovered(this.discovered);
+		const run = this.runOf(j);
+		if (run) run.diff = diff;
 		const n = Object.keys(errors).length;
-		j.result = `Found ${candidates.length} things${n ? `; ${n} provider${n > 1 ? "s" : ""} failed` : ""}`;
-		j.tone = n ? "warning" : "success";
+		const changes = diff.prevAt === undefined ? [] : [`${diff.added.length} new`, `${diff.gone.length} gone`, diff.changed.length ? `${diff.changed.length} changed version` : ""].filter(Boolean);
+		j.result = [`Found ${candidates.length}`, ...changes, diff.missing.length ? `${diff.missing.length} watched not found` : "", n ? `${n} provider${n > 1 ? "s" : ""} failed` : ""].filter(Boolean).join(" · ");
+		j.tone = n || diff.missing.length ? "warning" : "success";
 		this.record({ event: "scan", text: j.result, tone: j.tone, job: j.id, by: j.by });
 	}
 
@@ -342,6 +428,7 @@ export class Engine {
 		const p = provider(it.provider);
 		if (!p) throw new Error(`Unknown provider ${it.provider}`);
 		const started = Date.now();
+		j.before = { update: hasUpdate(it), latest: it.state.latest };
 		let res: Check;
 		try {
 			res = await p.check(it, this.ctx(j));
@@ -362,6 +449,7 @@ export class Engine {
 		const tone: Tone = s.eol?.past ? "danger" : hasUpdate(it) ? "warning" : s.blocked ? "warning" : "success";
 		j.result = text + (s.eol?.past ? " · end of life" : "");
 		j.tone = tone;
+		j.found = hasUpdate(it) ? (j.before!.update && j.before!.latest === s.latest ? "update" : "new-update") : s.outdated ? "held" : "ok";
 		this.record({ event: "check", item: it.id, name: it.name, text: j.result, tone, job: j.id, by: j.by, detail: { installed: s.installed ?? "", latest: s.latest ?? "", took: `${s.checkMs} ms` } });
 		// A scheduled check that found an update may start an automatic one.
 		if (j.by === "schedule" && hasUpdate(it)) {
@@ -447,7 +535,7 @@ export class Engine {
 			const why = await gitPrecheck(it, ctx);
 			if (why) throw new Error(why);
 		}
-		this.record({ event: "started", item: it.id, name: it.name, text: `Updating ${from ?? "?"} → ${target}: ${plan.steps.map((s) => s.label ?? show(s.argv)).join(" && ")}`, tone: "info", job: j.id, by: j.by });
+		this.log(j, `Updating ${from ?? "?"} → ${target}: ${plan.steps.map((s) => s.label ?? show(s.argv)).join(" && ")}`, "info");
 
 		// A running app: quit it first (you agreed in the review dialog); never automatically.
 		let teamBefore: string | undefined;
@@ -544,7 +632,8 @@ export class Engine {
 
 	// ── schedule ──────────────────────────────────────────────────────────
 	tick(now = Date.now()) {
-		for (const it of this.items) if (it.state.nextAt <= now) this.enqueue("check", it, "schedule");
+		const due = this.items.filter((it) => it.state.nextAt <= now);
+		if (due.length) this.batch("check", due, "schedule", "Scheduled check");
 	}
 
 	nextCheck = () => this.items.reduce<number | undefined>((m, it) => (m === undefined || it.state.nextAt < m ? it.state.nextAt : m), undefined);
@@ -584,3 +673,48 @@ exec /usr/bin/osascript \\
   -e 'end run' \\
   "\${UPKEEP_ASKPASS_PROMPT:-Upkeep needs your administrator password.}"
 `;
+
+// ── runs ──────────────────────────────────────────────────────────────────
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const names = (list: string[]) => (list.length <= 3 ? list.join(", ") : `${list.slice(0, 3).join(", ")} +${list.length - 3}`);
+
+/** A run's outcome in one line. */
+export function summarize(r: Run, jobs: Job[], engine: Engine): { text: string; tone: Tone } {
+	const failed = jobs.filter((j) => j.state === "failed");
+	const cancelled = jobs.filter((j) => j.state === "cancelled");
+	const tail = [failed.length ? `${failed.length} failed` : "", cancelled.length ? `${cancelled.length} cancelled` : ""].filter(Boolean);
+	const name = (j: Job) => (j.itemId ? (engine.item(j.itemId)?.name ?? j.title) : j.title);
+	if (jobs.length === 1) {
+		const j = jobs[0];
+		return { text: j.result ?? j.state, tone: j.tone ?? (j.state === "failed" ? "danger" : j.state === "cancelled" ? "muted" : "success") };
+	}
+	if (r.kind === "check") {
+		const fresh = jobs.filter((j) => j.found === "new-update");
+		const head = `Checked ${jobs.length - cancelled.length}`;
+		const found = fresh.length ? `${plural(fresh.length, "new update")}: ${names(fresh.map(name))}` : jobs.some((j) => j.found === "update") ? "no new updates" : "all up to date";
+		return { text: [head, found, ...tail].join(" · "), tone: failed.length === jobs.length ? "danger" : failed.length ? "warning" : fresh.length ? "info" : "success" };
+	}
+	// updates and rollbacks
+	const ok = jobs.filter((j) => j.state === "done" && (j.tone === "success" || j.tone === "info"));
+	const odd = jobs.filter((j) => j.state === "done" && (j.tone === "warning" || j.tone === "danger"));
+	const skipped = jobs.filter((j) => j.state === "done" && j.tone === "muted");
+	const verb = r.kind === "rollback" ? "Rolled back" : "Updated";
+	const text = [ok.length ? `${verb} ${ok.length}` : `Nothing ${verb.toLowerCase()}`, odd.length ? `${odd.length} need${odd.length === 1 ? "s" : ""} a look` : "", skipped.length ? `${skipped.length} skipped` : "", ...tail].filter(Boolean).join(" · ");
+	return { text, tone: failed.length || odd.some((j) => j.tone === "danger") ? "danger" : odd.length ? "warning" : ok.length ? "success" : "muted" };
+}
+
+/** Compare a scan with the previous one, and with what's watched. */
+export function scanDiff(prev: Discovered | null, candidates: Candidate[], errors: Record<string, string>, items: Item[]): ScanDiff {
+	const now = new Map(candidates.map((c) => [c.id, c]));
+	const missing = items.filter((it) => it.provider !== "custom" && !errors[it.provider] && !now.has(it.id)).map((it) => it.id);
+	if (!prev) return { added: [], gone: [], changed: [], missing };
+	const before = new Map(prev.candidates.map((c) => [c.id, c]));
+	return {
+		prevAt: prev.at,
+		added: candidates.filter((c) => !before.has(c.id)).map((c) => c.id),
+		// A provider that failed this time didn't lose anything.
+		gone: prev.candidates.filter((c) => !now.has(c.id) && !errors[c.provider]),
+		changed: candidates.filter((c) => before.has(c.id) && before.get(c.id)!.installed !== c.installed).map((c) => ({ id: c.id, from: before.get(c.id)!.installed, to: c.installed })),
+		missing,
+	};
+}

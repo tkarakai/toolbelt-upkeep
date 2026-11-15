@@ -4,13 +4,13 @@
 // only reads, and updates are "notify only" until you turn automatic updates on (globally and
 // per item). Everything is recorded in the audit log (Activity).
 import { dataDir, definePlugin, type Context } from "@toolbelt/sdk";
-import { Engine, bulkUpdatable, hasUpdate } from "./lib/engine";
+import { Engine, bulkUpdatable, hasUpdate, type Run } from "./lib/engine";
 import { initPath, quote, run, show, baseEnv } from "./lib/exec";
 import { Store, type Settings } from "./lib/store";
 import { POLICY_LABEL, type Item, type Policy } from "./lib/types";
 import { customCandidate, recipeHash } from "./providers/custom";
 import { provider } from "./providers";
-import { activity, bindEngine, discover, monitored, queue, quick, settingsScreen, ui, type Review } from "./ui";
+import { activity, bindEngine, discover, monitored, quick, runRowId, SCREEN, settingsScreen, ui, UPDATE_IDS, visibleRuns, type Review } from "./ui";
 
 const store = new Store(dataDir());
 let ctx: Context;
@@ -29,6 +29,36 @@ const changed = () => {
 
 const engine = new Engine(store, changed);
 bindEngine(engine);
+
+// Surfaces someone is looking at: a finished run whose card is in view needs no toast.
+const open = new Set<string>();
+const screenOf = (surface: string) => surface.replace(/^screen:/, "");
+
+/** Where a run's outcome is best seen. */
+function runTarget(r: Run): { screen: string; select?: string } {
+	if (r.surface && r.surface.startsWith("screen:") && visibleRuns(engine, r.surface).includes(r)) return { screen: screenOf(r.surface) };
+	if (r.jobs.length > 1) return { screen: "activity", select: runRowId(r.id) };
+	const job = engine.jobsOf(r)[0];
+	if (r.kind === "scan") return { screen: "discover" };
+	return { screen: "monitored", select: job?.itemId };
+}
+
+engine.onRunDone = (r) => {
+	if (!ctx) return;
+	if (r.by === "schedule") return; // quiet: the badge and the list say what's new
+	if (r.surface && open.has(r.surface) && visibleRuns(engine, r.surface).includes(r)) return;
+	if (ui.dialog?.kind === "review" && ui.dialog.review.jobId && r.jobs.includes(ui.dialog.review.jobId)) return;
+	const tone = r.summary?.tone === "danger" ? "error" : r.summary?.tone === "success" ? "success" : "default";
+	ctx.toast(`${r.by === "auto" ? "Automatic: " : ""}${r.title}: ${r.summary?.text ?? "finished"}`, tone, { id: "show-run", label: "Show", payload: { run: r.id } });
+};
+
+/** Start updates as one run, shown where they were started. */
+function updateMany(items: Item[], surface: string, title?: string) {
+	const list = items.filter((i) => hasUpdate(i) && !i.state.blocked);
+	if (!list.length) return null;
+	const where = surface === "quick" ? SCREEN.updates : surface;
+	return engine.batch("update", list, "you", title ?? (list.length === 1 ? `Update ${list[0].name}` : `Update ${list.length} items`), where, (i) => i.state.latest);
+}
 
 // ── review: plan + every release note between installed and newest ──────
 async function openReview(surface: string, it: Item) {
@@ -94,12 +124,13 @@ ctx = definePlugin({
 		engine.start();
 		c.badge(engine.updates().length || null);
 	},
+	onOpen: (surface) => void open.add(surface),
+	onClose: (surface) => void open.delete(surface),
 	render: {
-		"screen:monitored": () => monitored(engine, "screen:monitored"),
-		"screen:discover": () => discover(engine, "screen:discover"),
-		"screen:queue": () => queue(engine, "screen:queue"),
-		"screen:activity": () => activity(engine, "screen:activity"),
-		"screen:settings": () => settingsScreen(engine, "screen:settings"),
+		"screen:monitored": () => monitored(engine, SCREEN.updates),
+		"screen:discover": () => discover(engine, SCREEN.discover),
+		"screen:activity": () => activity(engine, SCREEN.activity),
+		"screen:settings": () => settingsScreen(engine, SCREEN.settings),
 		quick: () => quick(engine),
 	},
 	async onEvent(surface, name, payload, c) {
@@ -107,28 +138,58 @@ ctx = definePlugin({
 		const rowId: string | undefined = payload?.rowId;
 		const ids: string[] = payload?.rowIds ?? [];
 		const it = rowId ? engine.item(rowId) : undefined;
+		const run = rowId ? engine.getRun(rowId) : undefined;
 		try {
+			if (UPDATE_IDS.has(name)) {
+				// One click from a row or the quick view: the row and a card show the progress.
+				if (it) updateMany([it], surface);
+				return;
+			}
 			switch (name) {
 				case "search":
 					ui.query[surface] = String(payload?.query ?? "");
 					break;
-				// Monitored
+				case "filter":
+					ui.filters[surface] = { ...ui.filters[surface], [String(payload?.filter)]: (payload?.values ?? []).map(String) };
+					break;
+				// Updates
 				case "check":
-					if (it) engine.enqueue("check", it, "you");
+					if (it) engine.enqueue("check", it, "you", undefined, undefined, surface);
 					break;
 				case "check-many":
-					for (const id of ids) engine.item(id) && engine.enqueue("check", engine.item(id)!, "you");
+					engine.batch("check", ids.map((id) => engine.item(id)).filter((i): i is Item => !!i), "you", `Check ${ids.length} items`, surface);
 					break;
 				case "check-all":
-					for (const i of engine.items) engine.enqueue("check", i, "you");
+					engine.batch("check", engine.items, "you", "Check all", surface);
 					break;
-				case "update-safe":
-					for (const i of engine.updates().filter(bulkUpdatable)) engine.enqueue("update", i, "you", i.state.latest);
-					c.toast("Queued; see Queue for progress");
+				case "update-safe": {
+					if (ui.dialog?.kind === "bulk") ui.dialog = null;
+					const safe = engine.updates().filter(bulkUpdatable);
+					updateMany(safe, surface, `Update ${safe.length} ready`);
+					break;
+				}
+				case "update-many": {
+					const chosen = ids.map((id) => engine.item(id)).filter((i): i is Item => !!i && hasUpdate(i));
+					const safe = chosen.filter(bulkUpdatable);
+					updateMany(safe, surface);
+					const left = chosen.length - safe.length;
+					if (left) c.toast(`${left} of the selected need${left === 1 ? "s" : ""} individual review (app, major version, password or own command): use their Update button.`);
+					else if (!chosen.length) c.toast("None of the selected has an update.");
+					break;
+				}
+				case "review-safe":
+					if (surface === "quick") {
+						ui.dialog = { surface: SCREEN.updates, kind: "bulk" };
+						c.navigate("monitored");
+					} else ui.dialog = { surface, kind: "bulk" };
 					break;
 				case "review":
 				case "notes":
-					if (it) await openReview(surface, it);
+					if (!it) break;
+					if (surface === "quick") {
+						c.navigate("monitored", { select: it.id });
+						await openReview(SCREEN.updates, it);
+					} else await openReview(surface, it);
 					break;
 				case "settings":
 					if (it) ui.dialog = { surface, kind: "settings", itemId: it.id };
@@ -148,7 +209,7 @@ ctx = definePlugin({
 					if (it) setItemField(it, "pinned", name === "pin");
 					break;
 				case "rollback":
-					if (it) engine.enqueue("rollback", it, "you");
+					if (it) engine.enqueue("rollback", it, "you", undefined, undefined, surface);
 					break;
 				case "remove":
 					if (it) engine.remove(it.id);
@@ -156,15 +217,20 @@ ctx = definePlugin({
 				case "remove-many":
 					for (const id of ids) engine.remove(id);
 					break;
-				case "update": {
+				case "update-now": {
+					// From the review dialog: it stays open and follows the update.
 					if (ui.dialog?.kind !== "review") break;
-					const r = engine.item(ui.dialog.review.itemId);
-					ui.dialog = null;
-					if (r && hasUpdate(r) === false && !r.state.outdated) break;
-					if (r) {
-						engine.enqueue("update", r, "you", r.state.latest);
-						c.toast(`Updating ${r.name}; see Queue`);
-					}
+					const review = ui.dialog.review;
+					const r = engine.item(review.itemId);
+					if (!r || !r.state.outdated) break;
+					const job = engine.enqueue("update", r, "you", r.state.latest, undefined, ui.dialog.surface);
+					if (job) review.jobId = job.id;
+					break;
+				}
+				case "cancel-dialog-job": {
+					const d = ui.dialog;
+					const job = d?.kind === "review" ? d.review.jobId : d?.kind === "log" ? d.jobId : undefined;
+					if (job) engine.cancel(job);
 					break;
 				}
 				case "terminal": {
@@ -176,24 +242,46 @@ ctx = definePlugin({
 				}
 				// Discover
 				case "scan":
-					engine.enqueue("scan", null, "you");
+					engine.enqueue("scan", null, "you", undefined, undefined, surface);
 					break;
 				case "monitor":
-				case "monitor-many": {
-					const want = name === "monitor" ? [rowId!] : ids;
+				case "monitor-many":
+				case "monitor-new": {
+					const want = name === "monitor" ? [rowId!] : name === "monitor-many" ? ids : (engine.discovered?.diff?.added ?? []);
 					const cands = (engine.discovered?.candidates ?? []).filter((x) => want.includes(x.id));
 					const added = engine.add(cands);
-					c.toast(`Watching ${added.length} more; checking them now`, "success");
+					if (added.length) c.toast(`Watching ${added.length} more; checking ${added.length === 1 ? "it" : "them"} now`, "success");
 					break;
 				}
-				// Queue / Activity
+				// Runs (cards) and jobs
+				case "run-cancel":
+					if (run) engine.cancelRun(run.id);
+					break;
+				case "run-dismiss":
+					if (run) run.dismissed = true;
+					break;
+				case "run-activity":
+					if (run) c.navigate("activity", run.jobs.length > 1 && run.endedAt ? { select: runRowId(run.id) } : undefined);
+					break;
+				case "run-discover":
+					if (run) run.dismissed = true;
+					c.navigate("discover");
+					break;
+				case "show-run": {
+					const r = engine.getRun(String(payload?.run ?? ""));
+					if (r) {
+						const t = runTarget(r);
+						c.navigate(t.screen, t.select ? { select: t.select } : undefined);
+					}
+					break;
+				}
 				case "cancel":
 					if (rowId) engine.cancel(rowId);
 					break;
 				case "log": {
-					// Queue rows are job ids; Activity rows end with "|<job id>".
+					// Job ids, or Activity rows that end with "|<job id>".
 					const job = rowId?.includes("|") ? rowId.split("|").pop() : rowId;
-					if (job) ui.dialog = { surface, kind: "log", jobId: job };
+					if (job) ui.dialog = { surface: surface === "quick" ? SCREEN.activity : surface, kind: "log", jobId: job };
 					break;
 				}
 				// Settings and dialogs
@@ -226,7 +314,8 @@ ctx = definePlugin({
 			}
 		} catch (e) {
 			c.toast((e as Error).message, "error");
+		} finally {
+			c.invalidate();
 		}
-		c.invalidate();
 	},
 });
