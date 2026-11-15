@@ -2,7 +2,7 @@
   "id": "upkeep",
   "name": "Upkeep",
   "icon": "refresh-ccw-dot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Keeps the apps, runtimes, packages and git clones you choose up to date.",
   "protocol": 1,
   "entry": "index.ts",
