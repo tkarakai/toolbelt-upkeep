@@ -9,19 +9,14 @@
   "screens": [
     {
       "id": "monitored",
-      "title": "Watching",
-      "icon": "eye",
+      "title": "Updates",
+      "icon": "download",
       "default": true
     },
     {
       "id": "discover",
       "title": "Discover",
       "icon": "radar"
-    },
-    {
-      "id": "queue",
-      "title": "Queue",
-      "icon": "list-checks"
     },
     {
       "id": "activity",
@@ -38,7 +33,7 @@
   "repo": "tkarakai/toolbelt-upkeep",
   "formatVersion": 1,
   "requires": {
-    "host": ">=0.1.0",
+    "host": ">=0.3.6",
     "bun": ">=1.3.0",
     "platforms": [
       "darwin-arm64",
@@ -49,6 +44,8 @@
     "required": [
       "ui.core",
       "ui.action-key",
+      "ui.split-action",
+      "navigate",
       "lifecycle"
     ],
     "optional": []

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Redesigned flow: work you start shows its progress where you started it (a card with live
+  progress and the outcome, a pulsing dot on the row, the details panel) and ends with one
+  summary of what changed. A toast with **Show** opens the result when you've moved on.
+- **Updates** (formerly Watching) groups items by what needs doing: In progress, Needs you,
+  Ready to update, Review first, Not checked yet, Up to date and Held back, with a Kind filter.
+- Update is one click by default, with **Review & update…** beside it. Apps, major versions,
+  passwords, your own commands and vendor updaters ask for a short confirmation first.
+  **Update N ready** runs as one batch, with **Review them first…** listing what's included,
+  what's left out and why.
+- The review dialog stays open after **Update now** and follows the update to its verified
+  result; **Run in Terminal** sits beside it.
+- **Discover** compares each scan with the previous one: new, gone and changed versions, and
+  watched items the scan no longer finds (with Stop watching). **Watch N new** in one click.
+- **Activity** replaces the separate Queue: what's running now on top, then history with one
+  entry per run and its items nested inside, filterable by what and who started it. Updates
+  no longer record a separate "started" entry; the command line is in the job log.
+- Scheduled checks are one run each and stay quiet: the badge, the list and Activity show what they found.
+- The menu-bar quick view shows live progress, the last outcome and **Update N ready**.
+- Requires Toolbelt 0.3.6 or newer (split actions and plugin navigation); uses SDK 0.3.4.
+- Release retries are pinned to the exact authorized source, publication is serialized per
+  repository and runs the publisher from the trusted workflow commit.
+
 ## 0.1.0 — 2026-11-11
 - Non-interactive release PR preparation and verified CI publication through the shared SDK release tooling.
 
