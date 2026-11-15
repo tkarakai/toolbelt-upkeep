@@ -20,7 +20,9 @@
   no longer record a separate "started" entry; the command line is in the job log.
 - Scheduled checks are one run each and stay quiet: the badge, the list and Activity show what they found.
 - The menu-bar quick view shows live progress, the last outcome and **Update N ready**.
-- Requires a host with split actions and plugin navigation.
+- Requires Toolbelt 0.3.6 or newer (split actions and plugin navigation); uses SDK 0.3.4.
+- Release retries are pinned to the exact authorized source, publication is serialized per
+  repository and runs the publisher from the trusted workflow commit.
 
 ## 0.1.0 — 2026-11-11
 - Non-interactive release PR preparation and verified CI publication through the shared SDK release tooling.

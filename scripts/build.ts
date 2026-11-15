@@ -40,4 +40,4 @@ copyFileSync("NOTICE", join(out, "NOTICE"));
 
 import { packagePlugin } from "@toolbelt/sdk/release";
 if (!process.argv.includes("--folder-only"))
-  await packagePlugin(out, "dist", "0.1.0");
+  await packagePlugin(out, "dist", "0.3.6");
