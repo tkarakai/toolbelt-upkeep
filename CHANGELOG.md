@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-15
 - Redesigned flow: work you start shows its progress where you started it (a card with live
   progress and the outcome, a pulsing dot on the row, the details panel) and ends with one
   summary of what changed. A toast with **Show** opens the result when you've moved on.
