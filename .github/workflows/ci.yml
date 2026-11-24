@@ -23,10 +23,8 @@ jobs:
   test:
     # macOS: the plugin drives macOS tools (plutil, codesign, pmset).
     name: Test and build
-    strategy:
-      matrix:
-        runner: [macos-15, macos-15-intel]
-    runs-on: ${{ matrix.runner }}
+    # Apple silicon only, like the Toolbelt app.
+    runs-on: macos-15
     timeout-minutes: 15
     permissions:
       contents: read

@@ -67,7 +67,7 @@ resulting archive with a compatible released tester. Do not copy SDK source into
 `bun run build` produces:
 
 - `dist/upkeep/`: bundled `index.js`, `migrate.js`, manifest and provenance notice.
-- `dist/toolbelt-upkeep-<version>-darwin-{arm64,x64}.tar.gz`: target-specific ready-to-run packages.
+- `dist/toolbelt-upkeep-<version>-darwin-arm64.tar.gz`: the ready-to-run package for Apple silicon.
 - `dist/toolbelt-release.json`: plugin/repository identity, source commit, target assets,
   byte sizes and SHA-256 hashes.
 - `dist/*.sha256`: checksum sidecars.

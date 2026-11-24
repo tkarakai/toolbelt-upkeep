@@ -30,7 +30,8 @@ if a draft/public release exists but exact files cannot be recovered, stop and u
 See the [shared release reference](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md)
 for permissions, authorization, artifact retention and failure recovery.
 
-The adapter bundles the plugin/migration and packages darwin-arm64 and darwin-x64. Both native runners must pass.
+The adapter bundles the plugin/migration and packages darwin-arm64 (Apple silicon, like the Toolbelt app).
+The release builds and publishes on Linux; only the native check of the archive runs on macOS.
 Plugin behavior tests remain here; shared archive/schema/lifecycle validation is supplied by the
 SDK development entry point and does not enter the plugin runtime bundle. Keep required host/Bun
 ranges and capabilities accurate. Update the exact public SDK URL and lockfile together when
