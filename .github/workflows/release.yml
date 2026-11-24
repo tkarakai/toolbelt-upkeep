@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   plan:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
@@ -47,7 +47,7 @@ jobs:
   build:
     needs: plan
     if: needs.plan.outputs.release == 'true' && needs.plan.outputs.reuse != 'true'
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
       contents: read
@@ -70,10 +70,9 @@ jobs:
   native:
     needs: [plan, build]
     if: always() && needs.plan.outputs.release == 'true' && needs.plan.outputs.product == 'plugin' && (needs.build.result == 'success' || needs.plan.outputs.reuse == 'true')
-    strategy:
-      matrix:
-        runner: [macos-15, macos-15-intel]
-    runs-on: ${{ matrix.runner }}
+    # The only Mac job: the darwin-arm64 archive runs where its users run it, on Apple silicon.
+    # Planning, the bundle build and publishing are platform-independent and run on Linux.
+    runs-on: macos-15
     timeout-minutes: 15
     permissions:
       contents: read
@@ -104,7 +103,7 @@ jobs:
   publish:
     needs: [plan, build, native]
     if: always() && needs.plan.outputs.release == 'true' && (needs.build.result == 'success' || needs.plan.outputs.reuse == 'true') && (needs.native.result == 'success' || needs.plan.outputs.product != 'plugin')
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
       group: release-publish-${{ github.repository }}

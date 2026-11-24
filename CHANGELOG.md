@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Apple silicon only, like the Toolbelt app: there is no Intel (darwin-x64) package anymore.
 
 ## 0.2.0 — 2026-11-15
 - Redesigned flow: work you start shows its progress where you started it (a card with live
