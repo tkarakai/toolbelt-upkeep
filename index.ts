@@ -10,7 +10,7 @@ import { Store, type Settings } from "./lib/store";
 import { POLICY_LABEL, type Item, type Policy } from "./lib/types";
 import { customCandidate, recipeHash } from "./providers/custom";
 import { provider } from "./providers";
-import { activity, bindEngine, discover, monitored, quick, runRowId, SCREEN, settingsScreen, ui, UPDATE_IDS, visibleRuns, type Review } from "./ui";
+import { activity, bindEngine, discover, monitored, quick, runRowId, SCREEN, settingsScreen, ui, UPDATE_IDS, VIEWS, visibleRuns, type Review } from "./ui";
 
 const store = new Store(dataDir());
 let ctx: Context;
@@ -30,7 +30,8 @@ const changed = () => {
 const engine = new Engine(store, changed);
 bindEngine(engine);
 
-// Surfaces someone is looking at: a finished run whose card is in view needs no toast.
+// Surfaces someone is looking at: a finished run whose card is in view needs no toast. The SDK
+// reports a surface's first and last open instance, whoever's it is (the person or an agent).
 const open = new Set<string>();
 const screenOf = (surface: string) => surface.replace(/^screen:/, "");
 
@@ -126,13 +127,16 @@ ctx = definePlugin({
 	},
 	onOpen: (surface) => void open.add(surface),
 	onClose: (surface) => void open.delete(surface),
+	// Search and filters: the SDK applies their events, the host saves the person's.
+	views: VIEWS,
 	render: {
-		"screen:monitored": () => monitored(engine, SCREEN.updates),
-		"screen:discover": () => discover(engine, SCREEN.discover),
-		"screen:activity": () => activity(engine, SCREEN.activity),
-		"screen:settings": () => settingsScreen(engine, SCREEN.settings),
+		"screen:monitored": (_c, view) => monitored(engine, SCREEN.updates, view),
+		"screen:discover": (_c, view) => discover(engine, SCREEN.discover, view),
+		"screen:activity": (_c, view) => activity(engine, SCREEN.activity, view),
+		"screen:settings": (_c, view) => settingsScreen(engine, SCREEN.settings, view),
 		quick: () => quick(engine),
 	},
+	// Events come only from the person, so dialogs opened here are the person's.
 	async onEvent(surface, name, payload, c) {
 		if (process.env.TOOLBELT_LIFECYCLE_MODE === "probe") return;
 		const rowId: string | undefined = payload?.rowId;
@@ -146,12 +150,6 @@ ctx = definePlugin({
 				return;
 			}
 			switch (name) {
-				case "search":
-					ui.query[surface] = String(payload?.query ?? "");
-					break;
-				case "filter":
-					ui.filters[surface] = { ...ui.filters[surface], [String(payload?.filter)]: (payload?.values ?? []).map(String) };
-					break;
 				// Updates
 				case "check":
 					if (it) engine.enqueue("check", it, "you", undefined, undefined, surface);

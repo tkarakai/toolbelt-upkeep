@@ -1,12 +1,13 @@
-// Upkeep's screens, built from the engine's state. Dialogs belong to the screen they were
-// opened on.
+// Upkeep's screens, built from the engine's state and the instance's view (its search and
+// filters, kept by the SDK). Dialogs belong to the screen they were opened on and to the person:
+// agents read their own instances, which never show one.
 //
 // The flow: work you start shows its progress where you started it (a run card at the top of
 // the screen, a pulsing dot on the row, the review dialog turning into a live log) and ends
 // with one summary of what changed. Activity is the one timeline: what's running now on top,
 // then history, one entry per run with its jobs inside.
-import type { Action, Dialog, Filter, GroupLabel, LogLine, Node, Row, Tone } from "@toolbelt/sdk";
-import { relative } from "@toolbelt/sdk";
+import type { Action, Dialog, Filter, GroupLabel, LogLine, Node, Row, Tone, View, ViewDeclaration } from "@toolbelt/sdk";
+import { PERSON, relative } from "@toolbelt/sdk";
 import { bulkUpdatable, hasUpdate, stepOf, type Engine, type Job, type Run } from "./lib/engine";
 import { show, tilde } from "./lib/exec";
 import type { AuditEntry } from "./lib/store";
@@ -17,16 +18,20 @@ import { PROVIDERS, provider } from "./providers";
 export type Review = { itemId: string; target?: string; loading: boolean; plan?: Plan; notes?: Note[]; error?: string; notesError?: string; /** The update started from this dialog. */ jobId?: string };
 export type RecipeDraft = { name: string; version: string; latest: string; update: string; repo: string };
 export type UI = {
-	query: Record<string, string>;
-	/** Per surface, per filter id: the checked options. */
-	filters: Record<string, Record<string, string[]>>;
-	/** The open dialog and the screen it's on. */
+	/** The person's open dialog and the screen it's on. */
 	dialog: null | ({ surface: string } & ({ kind: "review"; review: Review } | { kind: "bulk" } | { kind: "settings"; itemId: string } | { kind: "log"; jobId: string } | { kind: "history"; itemId: string } | { kind: "recipe"; draft: RecipeDraft }));
 };
 
-export const ui: UI = { query: {}, filters: {}, dialog: null };
+export const ui: UI = { dialog: null };
 
 export const SCREEN = { updates: "screen:monitored", discover: "screen:discover", activity: "screen:activity", settings: "screen:settings" } as const;
+
+/** Each screen's search and filters, starting with nothing filtered. The SDK keeps them per instance. */
+export const VIEWS: Record<string, ViewDeclaration> = {
+	[SCREEN.updates]: { search: true, filters: { kind: [] } },
+	[SCREEN.discover]: { search: true },
+	[SCREEN.activity]: { search: true, filters: { what: [], by: [] } },
+};
 
 const KIND_ORDER: Kind[] = ["app", "runtime", "package", "repo", "custom"];
 const day = (at: number) => {
@@ -42,7 +47,7 @@ const matches = (q: string | undefined, ...parts: (string | undefined)[]) => !q 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const BY: Record<string, string> = { you: "You", schedule: "Schedule", auto: "Automatic" };
 const active = (j: Job) => j.state === "running" || j.state === "queued";
-const selected = (surface: string, filter: string) => ui.filters[surface]?.[filter] ?? [];
+const selected = (view: View, filter: string) => view.filters[filter] ?? [];
 
 function jobFor(engine: Engine, itemId: string) {
 	return engine.jobs.find((j) => j.itemId === itemId && active(j));
@@ -206,9 +211,9 @@ function scanDiffNodes(engine: Engine, r: Run): Node[] {
 }
 
 // ── Updates (screen id: monitored) ───────────────────────────────────────
-export function monitored(engine: Engine, surface: string): Node {
-	const q = ui.query[surface];
-	const kinds = selected(surface, "kind");
+export function monitored(engine: Engine, surface: string, view: View): Node {
+	const q = view.search;
+	const kinds = selected(view, "kind");
 	const all = engine.items.filter((it) => matches(q, it.name, it.location, it.provider, it.state.installed));
 	const items = all.filter((it) => !kinds.length || kinds.includes(it.kind));
 	const updates = engine.updates();
@@ -220,7 +225,7 @@ export function monitored(engine: Engine, surface: string): Node {
 	const attention = items.filter((it) => status.get(it.id)!.section === "attention").length;
 	const bits = [`${engine.items.length} watched`, updates.length ? plural(updates.length, "update") : "all up to date", attention ? `${attention} need${attention === 1 ? "s" : ""} you` : ""].filter(Boolean);
 	const kindFilter: Filter = { id: "kind", label: "Kind", icon: "shapes", options: KIND_ORDER.filter((k) => all.some((i) => i.kind === k)).map((k) => ({ value: k, label: KIND_LABEL[k], count: all.filter((i) => i.kind === k).length })), selected: kinds };
-	return page(surface, {
+	return page(surface, view, {
 		type: "page",
 		search: { placeholder: "Filter by name, folder, provider…" },
 		filters: engine.items.length ? [kindFilter] : undefined,
@@ -331,8 +336,8 @@ function itemRow(engine: Engine, it: Item, st: Status): Row {
 }
 
 // ── Discover ─────────────────────────────────────────────────────────────
-export function discover(engine: Engine, surface: string): Node {
-	const q = ui.query[surface];
+export function discover(engine: Engine, surface: string, view: View): Node {
+	const q = view.search;
 	const d = engine.discovered;
 	const diff = d?.diff;
 	const scanning = engine.jobs.some((j) => j.type === "scan" && active(j));
@@ -393,7 +398,7 @@ export function discover(engine: Engine, surface: string): Node {
 	const freshNew = [...added].filter((id) => !engine.item(id));
 	const errors = Object.entries(d?.errors ?? {});
 	const summary = scanning ? "Scanning this Mac…" : d ? [`${d.candidates.length} found ${relative(d.at)}`, errors.length ? `${errors.length} provider${errors.length > 1 ? "s" : ""} failed: ${errors.map(([p]) => provider(p)?.label ?? p).join(", ")}` : ""].filter(Boolean).join(" · ") : "";
-	return page(surface, {
+	return page(surface, view, {
 		type: "page",
 		search: { placeholder: "Filter by name, folder, provider…" },
 		summary,
@@ -489,10 +494,10 @@ function entryRow(engine: Engine, e: AuditEntry): Row {
 	};
 }
 
-export function activity(engine: Engine, surface: string): Node {
-	const q = ui.query[surface];
-	const what = selected(surface, "what");
-	const by = selected(surface, "by");
+export function activity(engine: Engine, surface: string, view: View): Node {
+	const q = view.search;
+	const what = selected(view, "what");
+	const by = selected(view, "by");
 	// "started" entries from older versions repeat their update's entry: leave them out.
 	const all = engine.audit.filter((e) => e.event !== "started").slice(-1500);
 	const runs = new Map(all.filter((e) => e.event === "run" && e.run).map((e) => [e.run!, e]));
@@ -532,7 +537,7 @@ export function activity(engine: Engine, surface: string): Node {
 	];
 	const next = engine.nextCheck();
 	const busy = engine.active().length;
-	return page(surface, {
+	return page(surface, view, {
 		type: "page",
 		search: { placeholder: "Filter the activity…" },
 		filters,
@@ -556,10 +561,10 @@ export function activity(engine: Engine, surface: string): Node {
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────
-export function settingsScreen(engine: Engine, surface: string): Node {
+export function settingsScreen(engine: Engine, surface: string, view: View): Node {
 	const s = engine.settings;
 	const custom = engine.items.filter((i) => i.provider === "custom");
-	return page(surface, {
+	return page(surface, view, {
 		type: "page",
 		actions: [{ id: "add-recipe", label: "Add a custom recipe", icon: "plus" }],
 		children: [
@@ -647,9 +652,10 @@ export function quick(engine: Engine): Node {
 }
 
 // ── dialogs ──────────────────────────────────────────────────────────────
-function page(surface: string, node: Extract<Node, { type: "page" }>): Node {
+function page(surface: string, view: View, node: Extract<Node, { type: "page" }>): Node {
 	const d = ui.dialog;
-	if (d && d.surface === surface) node.dialog = dialogNode(currentEngine!, d);
+	// Dialogs come from the person's events and show on the person's screens only.
+	if (d && d.surface === surface && view.instance === PERSON) node.dialog = dialogNode(currentEngine!, d);
 	return node;
 }
 

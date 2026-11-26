@@ -21,6 +21,10 @@ Plugin code runs with your user privileges; process isolation is not a security 
 - **Settings** controls checking, automatic-update policy, discovery folders and custom recipes.
   The menu-bar quick view summarizes updates and items needing attention.
 
+Search and filters are the same on every screen and ToolBelt remembers them. AI agents can read
+Upkeep through ToolBelt (read-only), each with its own search and filters; dialogs never appear
+to them.
+
 A fresh installation watches nothing. Items default to notify-only and automatic updates are
 off globally. Passwords, app quitting and custom commands require attention. Custom commands
 must be reviewed and never run automatically. Bulk updates exclude items requiring individual
@@ -53,7 +57,8 @@ shortcuts, themes, narrow layouts, zoom and lifecycle diagnostics. Never exercis
 against installed software or the person's working repositories.
 
 The test suite covers provider/version policy, engine safety and persistence, migration,
-and execution of actual archives outside this checkout without ambient `node_modules`.
+and execution of actual archives outside this checkout without ambient `node_modules`
+(including protocol 2 views, agent instances and person-only dialogs).
 For changes, add coverage where behavior is owned: providers in `providers/`, orchestration
 in `lib/engine.ts`, UI definitions in `ui.ts`, events in `index.ts`, and packaging in `scripts/`.
 
