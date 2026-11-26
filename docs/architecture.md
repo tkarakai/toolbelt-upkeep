@@ -10,16 +10,31 @@ update manager.
 Toolbelt launches the bundled entry with its Bun runtime in an independent process. The plugin
 uses the public `@toolbelt/sdk` package and bounded JSON-lines messages over stdin/stdout; stderr
 is diagnostic output. UI is a declarative tree rendered by Toolbelt, without plugin browser
-JavaScript. The manifest declares format/protocol versions, compatibility, capabilities and
-surfaces. SDK build version is diagnostic rather than an exact host-version match.
+JavaScript. The manifest declares format/protocol versions (protocol 2), compatibility,
+capabilities, surfaces and agent access. SDK build version is diagnostic rather than an exact
+host-version match.
 
 The stable plugin id is `upkeep`. Screens are `monitored` (titled Updates), `discover`,
 `activity` and `settings`, with a `quick` surface for the menu bar. The former `queue` screen was
 removed; running work is the top of Activity. `index.ts` handles events and connects the SDK to
 Store and Engine. `ui.ts` builds the screen trees, action keys, forms, run cards,
-review/bulk/log/history dialogs and quick view. Surface queries, filters, dialogs and run-card
-dismissal live in plugin memory; Toolbelt owns renderer selection, scroll and other immediate UI
-state.
+review/bulk/log/history dialogs and quick view.
+
+Each screen's search and filters are an SDK *view*, declared in `VIEWS` (`ui.ts`): Updates has
+search and the `kind` filter, Discover search, Activity search and the `what`/`by` filters, all
+starting unfiltered. The SDK applies `search`/`filter` events, keeps one view per open instance
+and passes it to the screen functions, which render from engine state plus that view and nothing
+else. Toolbelt saves the person's view, so Upkeep persists none. Every person's screen (window,
+popover, paired devices) shares the `PERSON` instance; AI agents read through `agent:…` instances
+with views of their own (manifest `agent.access: "read"`). Filter option values (`kind`, `what`,
+`by` keys) are the agent-visible view schema: keep them stable.
+
+Dialogs and run-card dismissal live in plugin memory. Events come only from the person, so the
+single open dialog is the person's: it is drawn on the screen it was opened on, in the `PERSON`
+instance only, never in an agent's. The SDK's `onOpen`/`onClose` report a surface's first and
+last instance of any viewer, so "a run's card is in view" (which suppresses its toast) also holds
+while only an agent reads that screen. Toolbelt owns renderer selection, scroll and other
+immediate UI state.
 
 Every request is a *run* (`Engine.startRun`/`batch`): a scan, "check all", a batch of updates, one
 update or one scheduled tick. Its jobs carry the run id, and when the last one ends the engine
@@ -119,5 +134,6 @@ Tests use temporary homes, scratch-file recipes and fixture feeds. They cover po
 boundaries, provider parsing, Sparkle builds/notes, queue/cancel/persistence, migration rejection,
 safe shutdown and inert probe behavior. Package tests unpack real archives outside the source
 checkout and exercise protocol readiness, validated screens, actions, migration and restart
-without ambient dependencies. Visual and keyboard checks use the standalone Plugin Tester with
+without ambient dependencies, plus SDK-applied search/filters, independent agent instances and
+person-only dialogs. Visual and keyboard checks use the standalone Plugin Tester with
 its production renderer and isolated profiles.

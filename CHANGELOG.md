@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Requires ToolBelt 0.6.0 or newer (plugin protocol 2); uses SDK 0.4.0.
+- Search and filters on Updates, Discover and Activity are the same on every screen (the window,
+  the menu bar and paired devices) and ToolBelt remembers them.
+- AI agents can read Upkeep (what's watched, updates and activity) through ToolBelt, each with
+  its own search and filters that never change what you see. Dialogs stay on your screen only.
 
 ## 0.2.0 — 2026-11-15
 - Redesigned flow: work you start shows its progress where you started it (a card with live

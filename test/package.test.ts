@@ -12,7 +12,10 @@ const unpacked = join(root, "package");
 const data = join(root, "data");
 let child: ReturnType<typeof Bun.spawn> | undefined;
 let messages: any[] = [];
+/** The person's trees by surface; agent instances' trees by `surface|instance`. */
 let trees = new Map<string, any>();
+let agentTrees = new Map<string, any>();
+const PERSON = "person";
 const env = { HOME: root, TMPDIR: root, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", SHELL: "/usr/bin/true", TOOLBELT_PLUGIN: "upkeep", TOOLBELT_DATA_DIR: data, TOOLBELT_PACKAGE_ROOT: unpacked, TOOLBELT_PLUGIN_VERSION: "0.0.1" };
 
 async function until(check: () => boolean, ms = 5000) {
@@ -24,7 +27,7 @@ async function until(check: () => boolean, ms = 5000) {
 }
 const send = (message: unknown) => { if (!child || typeof child.stdin === "number" || !child.stdin) throw new Error("not running"); child.stdin.write(JSON.stringify(message) + "\n"); };
 async function launch(mode: "active" | "probe" = "active", extraEnv: Record<string, string> = {}) {
- messages = []; trees = new Map();
+ messages = []; trees = new Map(); agentTrees = new Map();
  child = Bun.spawn([process.execPath, join(unpacked, "index.js")], { cwd: unpacked, env: { ...env, TOOLBELT_LIFECYCLE_MODE: mode, ...extraEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
  const processChild = child;
  void (async () => {
@@ -37,13 +40,16 @@ async function launch(mode: "active" | "probe" = "active", extraEnv: Record<stri
     const line = buffer.slice(0, n); buffer = buffer.slice(n + 1);
     if (!line) continue;
     const m = JSON.parse(line); validateMessage(m); messages.push(m);
-    if (m.type === "render") trees.set(m.surface, m.tree);
+    if (m.type === "render") {
+     if (m.instance === PERSON) trees.set(m.surface, m.tree);
+     else agentTrees.set(`${m.surface}|${m.instance}`, m.tree);
+    }
    }
   }
  })();
- send({ type: "hello", protocol: 1, plugin: { id: "upkeep" }, host: { name: "contract-test", version: "0.1.0" } });
+ send({ type: "hello", protocol: 2, plugin: { id: "upkeep" }, host: { name: "contract-test", version: "0.1.0" } });
  await until(() => messages.some((m) => m.type === "ready"));
- for (const surface of ["monitored", "discover", "activity", "settings"].map((s) => `screen:${s}`).concat("quick")) send({ type: "open", surface });
+ for (const surface of ["monitored", "discover", "activity", "settings"].map((s) => `screen:${s}`).concat("quick")) send({ type: "open", surface, instance: PERSON });
  await until(() => trees.size === 5);
 }
 async function stop() {
@@ -56,7 +62,7 @@ async function stop() {
  }
  await p.exited;
 }
-const event = (surface: string, name: string, payload?: unknown) => send({ type: "event", surface, name, payload });
+const event = (surface: string, name: string, payload?: unknown) => send({ type: "event", surface, instance: PERSON, name, payload });
 
 beforeAll(async () => {
  const build = Bun.spawn([process.execPath, "run", "build"], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
@@ -79,7 +85,7 @@ afterAll(async () => { await stop(); rmSync(root, { recursive: true, force: true
 
 test("clean release archive: all screens, opt-in, reversible Discover, scratch update, logs and restart", async () => {
  await launch();
- expect(messages.find((m) => m.type === "hello")).toMatchObject({ protocol: 1, capabilities: expect.arrayContaining(["ui.core", "ui.action-key", "lifecycle"]) });
+ expect(messages.find((m) => m.type === "hello")).toMatchObject({ protocol: 2, capabilities: expect.arrayContaining(["ui.core", "ui.action-key", "lifecycle"]) });
  expect(JSON.stringify(trees.get("screen:monitored"))).toContain("Nothing watched yet");
  for (const file of ["items.json", "discovered.json", "audit.jsonl"]) expect(existsSync(join(data, file))).toBe(false);
  await stop();
@@ -190,4 +196,61 @@ test("packaged migration preserves staged data, retries safely and rejects unkno
   expect(output).toContain(fromSchema === 2 ? "migration-failed" : "migration-complete");
   expect(readFileSync(marker, "utf8")).toBe("retain me");
  }
+});
+
+test("views: the SDK applies the person's search and filters, agents read with their own, dialogs stay the person's", async () => {
+ const now = Date.now();
+ const item = (c: ReturnType<typeof customCandidate>, kind: string) => ({ ...c, kind, addedAt: now, policy: "notify", state: { installed: "1.0.0", latest: "1.0.0", outdated: false, checkedAt: now, nextAt: now + 86_400_000, failures: 0 } });
+ const alpha = customCandidate({ name: "Alpha recipe", version: "/bin/echo 1.0.0", latest: "/bin/echo 1.0.0", update: "/usr/bin/true" });
+ const beta = customCandidate({ name: "Beta tool", version: "/bin/echo 1.0.0", latest: "/bin/echo 1.0.0", update: "/usr/bin/true" });
+ writeFileSync(join(data, "items.json"), JSON.stringify([item(alpha, "custom"), item(beta, "runtime")]));
+ writeFileSync(join(data, "audit.jsonl"), [
+  { at: now - 2000, event: "added", item: alpha.id, name: "Alpha recipe", text: "Watching", tone: "info", by: "you" },
+  { at: now - 1000, event: "check", item: beta.id, name: "Beta tool", text: "Up to date at 1.0.0", tone: "success", by: "schedule" },
+ ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+ rmSync(join(data, "discovered.json"), { force: true });
+ await launch();
+ expect(messages.find((m) => m.type === "hello").views).toEqual({
+  "screen:monitored": { search: true, filters: { kind: [] } },
+  "screen:discover": { search: true },
+  "screen:activity": { search: true, filters: { what: [], by: [] } },
+ });
+ const find = (node: any, id: string): any => node?.id === id && node.type === "table" ? node : (node?.children ?? []).map((n: any) => find(n, id)).find(Boolean);
+ const names = (tree: any) => find(tree, "items").rows.map((r: any) => r.cells.name.text);
+ expect(names(trees.get("screen:monitored")).sort()).toEqual(["Alpha recipe", "Beta tool"]);
+
+ // The person's filter: applied by the SDK (not the plugin's event handler), reported for the host to save.
+ event("screen:monitored", "filter", { filter: "kind", values: ["runtime"] });
+ await until(() => names(trees.get("screen:monitored")).join() === "Beta tool");
+ expect(trees.get("screen:monitored").filters[0]).toMatchObject({ id: "kind", selected: ["runtime"] });
+ expect(messages).toContainEqual({ type: "view", surface: "screen:monitored", instance: PERSON, view: { filters: { kind: ["runtime"] } } });
+ // The person's search on Activity.
+ event("screen:activity", "search", { query: "alpha" });
+ await until(() => trees.get("screen:activity").search.query === "alpha");
+ const audit = JSON.stringify(find(trees.get("screen:activity"), "audit"));
+ expect(audit).toContain("Alpha recipe");
+ expect(audit).not.toContain("Beta tool");
+
+ // An agent's own instance, opened with another view: rendered independently.
+ send({ type: "open", surface: "screen:monitored", instance: "agent:one", view: { search: "alpha" } });
+ await until(() => agentTrees.has("screen:monitored|agent:one"));
+ const agent = agentTrees.get("screen:monitored|agent:one");
+ expect(names(agent)).toEqual(["Alpha recipe"]);
+ expect(agent.search.query).toBe("alpha");
+ expect(agent.filters[0].selected).toEqual([]);
+ expect(names(trees.get("screen:monitored"))).toEqual(["Beta tool"]);
+ expect(messages.some((m) => m.type === "view" && m.instance === "agent:one")).toBe(false);
+
+ // A dialog the person opens shows on the person's screen, never in an agent's instance.
+ event("screen:monitored", "history", { rowId: beta.id });
+ await until(() => trees.get("screen:monitored").dialog?.id === "history");
+ send({ type: "open", surface: "screen:monitored", instance: "agent:two" });
+ await until(() => agentTrees.has("screen:monitored|agent:two"));
+ expect(agentTrees.get("screen:monitored|agent:two").dialog).toBeUndefined();
+ expect(agentTrees.get("screen:monitored|agent:one").dialog).toBeUndefined();
+ expect(names(agentTrees.get("screen:monitored|agent:two")).sort()).toEqual(["Alpha recipe", "Beta tool"]);
+ for (const instance of ["agent:one", "agent:two"]) send({ type: "close", surface: "screen:monitored", instance });
+ event("screen:monitored", "dialog-close");
+ await until(() => trees.get("screen:monitored").dialog === undefined);
+ await stop();
 });

@@ -7,7 +7,7 @@ import {
 } from "@toolbelt/sdk/release";
 export default {
   repo: "tkarakai/toolbelt-upkeep",
-  hostVersion: "0.3.6",
+  hostVersion: "0.6.0",
   products: {
     plugin: {
       changelog: "CHANGELOG.md",
@@ -18,7 +18,7 @@ export default {
       },
       async build() {
         await run(["bun", "scripts/build.ts", "--folder-only"]);
-        return packagePlugin("dist/upkeep", "dist", "0.3.6", []);
+        return packagePlugin("dist/upkeep", "dist", "0.6.0", []);
       },
     },
   },
