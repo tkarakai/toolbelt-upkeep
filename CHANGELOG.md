@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.0 — 2026-11-26
 - Requires ToolBelt 0.6.0 or newer (plugin protocol 2); uses SDK 0.4.0.
 - Search and filters on Updates, Discover and Activity are the same on every screen (the window,
   the menu bar and paired devices) and ToolBelt remembers them.
