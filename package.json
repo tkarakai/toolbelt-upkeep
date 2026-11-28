@@ -16,6 +16,6 @@
     "typescript": "~5.9.3"
   },
   "dependencies": {
-    "@toolbelt/sdk": "https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.4.0/toolbelt-sdk-0.4.0.tgz"
+    "@toolbelt/sdk": "https://github.com/tkarakai/toolbelt/releases/download/sdk-v0.7.0/toolbelt-sdk-0.7.0.tgz"
   }
 }
