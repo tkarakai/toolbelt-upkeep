@@ -10,14 +10,14 @@ update manager.
 Toolbelt launches the bundled entry with its Bun runtime in an independent process. The plugin
 uses the public `@toolbelt/sdk` package and bounded JSON-lines messages over stdin/stdout; stderr
 is diagnostic output. UI is a declarative tree rendered by Toolbelt, without plugin browser
-JavaScript. The manifest declares format/protocol versions (protocol 2), compatibility,
+JavaScript. The manifest declares format/protocol versions (protocol 3), compatibility,
 capabilities, surfaces and agent access. SDK build version is diagnostic rather than an exact
 host-version match.
 
 The stable plugin id is `upkeep`. Screens are `monitored` (titled Updates), `discover`,
 `activity` and `settings`, with a `quick` surface for the menu bar. The former `queue` screen was
-removed; running work is the top of Activity. `index.ts` handles events and connects the SDK to
-Store and Engine. `ui.ts` builds the screen trees, action keys, forms, run cards,
+removed; running work is the top of Activity. `plugin.ts` (`createUpkeep`) handles lifecycle and
+events and connects the SDK to Store and Engine; `index.ts` runs it with the SDK's `dataDir()`. `ui.ts` builds the screen trees, action keys, forms, run cards,
 review/bulk/log/history dialogs and quick view.
 
 Each screen's search and filters are an SDK *view*, declared in `VIEWS` (`ui.ts`): Updates has
@@ -25,16 +25,35 @@ search and the `kind` filter, Discover search, Activity search and the `what`/`b
 starting unfiltered. The SDK applies `search`/`filter` events, keeps one view per open instance
 and passes it to the screen functions, which render from engine state plus that view and nothing
 else. Toolbelt saves the person's view, so Upkeep persists none. Every person's screen (window,
-popover, paired devices) shares the `PERSON` instance; AI agents read through `agent:…` instances
-with views of their own (manifest `agent.access: "read"`). Filter option values (`kind`, `what`,
-`by` keys) are the agent-visible view schema: keep them stable.
+popover, paired devices) shares the `PERSON` instance; AI agents read and act through `agent:…`
+instances with views of their own (manifest `agent.access: "act"`). Filter option values (`kind`,
+`what`, `by` keys) are the agent-visible view schema: keep them stable.
 
-Dialogs and run-card dismissal live in plugin memory. Events come only from the person, so the
-single open dialog is the person's: it is drawn on the screen it was opened on, in the `PERSON`
-instance only, never in an agent's. The SDK's `onOpen`/`onClose` report a surface's first and
-last instance of any viewer, so "a run's card is in view" (which suppresses its toast) also holds
-while only an agent reads that screen. Toolbelt owns renderer selection, scroll and other
-immediate UI state.
+Every action id the trees and toasts use, and every form, is declared in `ACTIONS`/`FORMS`
+(`ui.ts`) with its effect; ToolBelt rejects a tree with an undeclared id and asks the person
+before an agent's change as the effect requires. Updates, rollbacks, cancellations and
+**Run in Terminal** are `external`; Stop watching (`remove`, `remove-many`) is `destructive`;
+checks, scans, watching, skips, pins, settings and recipe saves are `write`; dialogs and
+navigation are `view`. **Run in Terminal** and the recipe review (`review-recipe`,
+`recipe-approve`) are `agent: false`. Automatic updates are switched on by the confirmed
+`auto-updates-on` action, not a form field, so an agent's request always asks. The row's
+`update*` id names its confirmation (`updateActionFor`); the handler refuses any id other than
+the one `offeredUpdate` gives the row now. Handlers return started run and job ids in the
+result's `data` (`{ run, jobs }` or `{ run, job }`), the added recipe's id with whether it was
+reviewed, and the ids a batch left out.
+
+Events carry their `origin`. An agent's are handled like the person's, recorded with `by:
+"agent"` (Activity's "An agent"), and never mark a custom recipe reviewed: such a recipe isn't
+checked or run (`runnable`) until the person opens **Review its commands…** and allows it. A
+thrown error is the event's result error; for the person it's also a toast.
+
+Dialogs (with their drafts) and run-card dismissal live in plugin memory, per instance: every
+person's screen shares the `PERSON` dialog, drawn on the screen it was opened on, and each
+agent instance has its own, dropped when that instance closes. Opening, closing and navigation
+happen only in `onEvent`. Per-instance `onOpen`/`onClose` track which surfaces the person has
+open: a finished run's toast is skipped only when the person is looking at its card (or
+following it in their review dialog), so work an agent started still reaches the person.
+Toolbelt owns renderer selection, scroll and other immediate UI state.
 
 Every request is a *run* (`Engine.startRun`/`batch`): a scan, "check all", a batch of updates, one
 update or one scheduled tick. Its jobs carry the run id, and when the last one ends the engine
@@ -55,8 +74,9 @@ JavaScript dependencies and uses host-provided runtime paths, not sibling checko
 
 | Location | Responsibility |
 | --- | --- |
-| `index.ts` | SDK startup, surfaces, event dispatch and review/confirmation flows |
-| `ui.ts` | Declarative screens, tables, dialogs, quick view and action shortcuts |
+| `index.ts` | Runs the plugin definition with the SDK's data folder |
+| `plugin.ts` | SDK lifecycle, surfaces, per-instance dialogs, event dispatch and review/confirmation flows |
+| `ui.ts` | Action and form declarations, declarative screens, tables, dialogs, quick view and action shortcuts |
 | `lib/engine.ts` | Queue, runs and summaries, scan comparison, scheduling, safety policy, update/check/rollback orchestration and audit |
 | `lib/store.ts` | Managed JSON files, audit rotation and per-job logs |
 | `lib/types.ts` | Items, providers, plans, steps and execution context |
@@ -65,7 +85,7 @@ JavaScript dependencies and uses host-provided runtime paths, not sibling checko
 | `providers/` | Discovery, checks, plans, notes, recipes and provider-specific rollback |
 | `migrate.ts`, `lib/migration.ts` | Managed-data initialization/schema compatibility |
 | `scripts/build.ts` | SDK validation, bundling, archives and release metadata |
-| `test/` | Provider, engine, migration and unpacked-package behavior |
+| `test/` | Provider, engine, migration, fake-host plugin and unpacked-package behavior |
 
 ## Providers and update safety
 
@@ -134,6 +154,8 @@ Tests use temporary homes, scratch-file recipes and fixture feeds. They cover po
 boundaries, provider parsing, Sparkle builds/notes, queue/cancel/persistence, migration rejection,
 safe shutdown and inert probe behavior. Package tests unpack real archives outside the source
 checkout and exercise protocol readiness, validated screens, actions, migration and restart
-without ambient dependencies, plus SDK-applied search/filters, independent agent instances and
-person-only dialogs. Visual and keyboard checks use the standalone Plugin Tester with
+without ambient dependencies, plus SDK-applied search/filters, event results, independent agent
+instances and an agent's unreviewed recipe. `test/plugin.test.ts` runs the plugin under the SDK's
+`fakeHost` (declarations, rendered ids, result data, the update-id check, confirmations,
+per-instance dialogs and toasts) with a fake provider. Visual and keyboard checks use the standalone Plugin Tester with
 its production renderer and isolated profiles.

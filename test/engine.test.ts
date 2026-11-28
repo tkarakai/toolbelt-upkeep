@@ -184,8 +184,7 @@ describe("engine flows", () => {
 		const other = join(dir, "other");
 		writeFileSync(other, "2.0.0\n");
 		const same = customCandidate({ name: "Current", version: `cat '${other}'`, latest: "echo 2.0.0", update: "true" });
-		const added = e.add([cand, same]);
-		for (const it of added) it.reviewed = recipeHash(it.data); // before the checks start
+		const added = e.add([cand, same].map((c) => ({ ...c, reviewed: recipeHash(c.data) })));
 		const first = e.runs.at(-1)!;
 		expect(first.title).toBe("Check 2 newly watched");
 		await until(() => !!first.endedAt);
@@ -201,8 +200,7 @@ describe("engine flows", () => {
 	test("cancelling a run stops what's left of it", async () => {
 		const { e, file } = setup();
 		const slow = (n: string) => customCandidate({ name: n, version: `cat '${file}'`, latest: "echo 9.0.0", update: `sleep 5; echo 9.0.0 > '${file}'` });
-		const items = e.add([slow("A"), slow("B")], { reviewed: "x" });
-		for (const it of items) it.reviewed = recipeHash(it.data);
+		const items = e.add([slow("A"), slow("B")].map((c) => ({ ...c, reviewed: recipeHash(c.data) })));
 		await until(() => items.every((i) => !!i.state.checkedAt));
 		const run = e.batch("update", items, "you", "Update 2 items")!;
 		await until(() => e.jobsOf(run).some((j) => j.state === "running"));
@@ -216,6 +214,11 @@ describe("engine flows", () => {
 	test("a recipe that changed since you reviewed it doesn't run", async () => {
 		const { e, cand, file } = setup();
 		const [it] = e.add([cand], { reviewed: "something else" });
+		// Not checked on its own, by the schedule or when added: only when asked.
+		expect(e.jobs).toEqual([]);
+		e.tick(Date.now() + 365 * 24 * HOUR);
+		expect(e.jobs).toEqual([]);
+		e.enqueue("check", it, "you");
 		await until(() => !!it.state.checkedAt);
 		expect(it.state.error).toContain("review it again");
 		const job = e.enqueue("update", it, "you", "1.1.0")!;

@@ -26,7 +26,8 @@ const versionOf = (out: string) => {
 };
 
 function guard(item: Item) {
-	if (item.reviewed !== recipeHash(item.data)) throw new Error("This recipe changed since you reviewed it: review it again before it runs.");
+	if (item.reviewed !== recipeHash(item.data))
+		throw new Error(item.reviewed ? "This recipe changed since you reviewed it: review it again before it runs." : "Nobody has reviewed this recipe's commands yet: review them before they run.");
 }
 
 export const customProvider: Provider = {

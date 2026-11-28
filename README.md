@@ -22,8 +22,12 @@ Plugin code runs with your user privileges; process isolation is not a security 
   The menu-bar quick view summarizes updates and items needing attention.
 
 Search and filters are the same on every screen and ToolBelt remembers them. AI agents can read
-Upkeep through ToolBelt (read-only), each with its own search and filters; dialogs never appear
-to them.
+Upkeep through ToolBelt, each with its own search and filters, and act on it as you would, in a
+screen and dialogs of their own. ToolBelt asks you first: every update, rollback, cancellation
+and Stop watching asks each time, and other changes ask unless you let that agent make changes
+for a while. Turning on automatic updates always asks. A custom recipe an agent adds doesn't run
+until you review its commands (**Review its commands…** on its row). Activity shows what an agent
+started as "An agent".
 
 A fresh installation watches nothing. Items default to notify-only and automatic updates are
 off globally. Passwords, app quitting and custom commands require attention. Custom commands
@@ -58,9 +62,12 @@ against installed software or the person's working repositories.
 
 The test suite covers provider/version policy, engine safety and persistence, migration,
 and execution of actual archives outside this checkout without ambient `node_modules`
-(including protocol 2 views, agent instances and person-only dialogs).
+(including protocol 3 results, agent instances and per-instance dialogs). `test/plugin.test.ts`
+runs the plugin under the SDK's `fakeHost`, which rejects undeclared action and form ids, with a
+fake provider whose updates write scratch files.
 For changes, add coverage where behavior is owned: providers in `providers/`, orchestration
-in `lib/engine.ts`, UI definitions in `ui.ts`, events in `index.ts`, and packaging in `scripts/`.
+in `lib/engine.ts`, UI definitions and action/form declarations in `ui.ts`, events in `plugin.ts`,
+and packaging in `scripts/`.
 
 To update the SDK dependency, choose a public compatible SDK release asset, change the pinned
 dependency with Bun and commit the regenerated lockfile. Keep required capabilities and runtime

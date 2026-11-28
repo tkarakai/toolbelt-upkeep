@@ -56,7 +56,7 @@ export type AuditEntry = {
 	 *  of several jobs also records one `run` entry with its summary. Older entries have none. */
 	run?: string;
 	/** Who started it: you, the schedule, an automatic update. */
-	by?: "you" | "schedule" | "auto";
+	by?: "you" | "agent" | "schedule" | "auto";
 	detail?: Record<string, string>;
 };
 
