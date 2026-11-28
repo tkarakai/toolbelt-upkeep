@@ -1,14 +1,14 @@
 // Upkeep's screens, built from the engine's state and the instance's view (its search and
-// filters, kept by the SDK). Dialogs belong to the screen they were opened on and to the person:
-// agents read their own instances, which never show one.
+// filters, kept by the SDK). Dialogs belong to the instance that opened them and the screen they
+// were opened on: the person's screens share one, an agent acting has its own.
 //
 // The flow: work you start shows its progress where you started it (a run card at the top of
 // the screen, a pulsing dot on the row, the review dialog turning into a live log) and ends
 // with one summary of what changed. Activity is the one timeline: what's running now on top,
 // then history, one entry per run with its jobs inside.
-import type { Action, Dialog, Filter, GroupLabel, LogLine, Node, Row, Tone, View, ViewDeclaration } from "@toolbelt/sdk";
+import type { Action, ActionDeclaration, Dialog, Filter, FormDeclaration, GroupLabel, LogLine, Node, Row, Tone, View, ViewDeclaration } from "@toolbelt/sdk";
 import { PERSON, relative } from "@toolbelt/sdk";
-import { bulkUpdatable, hasUpdate, stepOf, type Engine, type Job, type Run } from "./lib/engine";
+import { bulkUpdatable, hasUpdate, runnable, stepOf, type Engine, type Job, type Run } from "./lib/engine";
 import { show, tilde } from "./lib/exec";
 import type { AuditEntry } from "./lib/store";
 import { KIND_LABEL, POLICY_LABEL, type Candidate, type Item, type Kind, type Note, type Plan } from "./lib/types";
@@ -17,14 +17,75 @@ import { PROVIDERS, provider } from "./providers";
 
 export type Review = { itemId: string; target?: string; loading: boolean; plan?: Plan; notes?: Note[]; error?: string; notesError?: string; /** The update started from this dialog. */ jobId?: string };
 export type RecipeDraft = { name: string; version: string; latest: string; update: string; repo: string };
-export type UI = {
-	/** The person's open dialog and the screen it's on. */
-	dialog: null | ({ surface: string } & ({ kind: "review"; review: Review } | { kind: "bulk" } | { kind: "settings"; itemId: string } | { kind: "log"; jobId: string } | { kind: "history"; itemId: string } | { kind: "recipe"; draft: RecipeDraft }));
-};
-
-export const ui: UI = { dialog: null };
+/** An open dialog and the screen it's on. */
+export type OpenDialog = { surface: string } & ({ kind: "review"; review: Review } | { kind: "bulk" } | { kind: "settings"; itemId: string } | { kind: "log"; jobId: string } | { kind: "history"; itemId: string } | { kind: "recipe"; draft: RecipeDraft } | { kind: "recipe-review"; itemId: string });
+/** Instance → its open dialog. Every person's screen shares `PERSON`; each agent acting has its own. */
+export type Dialogs = Map<string, OpenDialog>;
 
 export const SCREEN = { updates: "screen:monitored", discover: "screen:discover", activity: "screen:activity", settings: "screen:settings" } as const;
+
+// ── what each action and form does (ToolBelt asks the person before an agent's change) ──
+const RUNS_UPDATE: ActionDeclaration = { effect: "external", describe: "Runs the update's commands: changes software on this Mac" };
+const STOPS_WORK: ActionDeclaration = { effect: "external", describe: "Stops queued and running work; a half-run update command can't be undone" };
+const OPENS: ActionDeclaration = { effect: "view" };
+
+/** Every action id Upkeep's trees and toasts use. */
+export const ACTIONS: Record<string, ActionDeclaration> = {
+	// Updates
+	update: RUNS_UPDATE,
+	"update-app": { effect: "external", describe: "Quits the app if it's running, then updates it" },
+	"update-major": { effect: "external", describe: "Runs a major-version update: changes software on this Mac" },
+	"update-auth": { effect: "external", describe: "Runs an update that asks for the administrator password in a macOS dialog" },
+	"update-own": { effect: "external", describe: "Runs the custom recipe's own update command in a shell" },
+	"update-open": { effect: "external", describe: "Opens the app's own updater" },
+	"update-many": RUNS_UPDATE,
+	"update-safe": { effect: "external", describe: "Updates every item that's ready (no password, no app to quit, no major version)" },
+	"update-now": RUNS_UPDATE,
+	rollback: { effect: "external", describe: "Runs the provider's commands to go back to the version before the last update" },
+	terminal: { effect: "external", agent: false, describe: "Opens Terminal with the update's command, for the person to run" },
+	check: { effect: "write", describe: "Only reads: asks for the newest version and records it" },
+	"check-many": { effect: "write", describe: "Only reads: asks for the newest versions and records them" },
+	"check-all": { effect: "write", describe: "Only reads: checks every watched item" },
+	skip: { effect: "write", describe: "Stops offering this version; newer ones are offered again" },
+	pin: { effect: "write", describe: "Keeps this version: updates are shown but not offered" },
+	unpin: { effect: "write" },
+	remove: { effect: "destructive", describe: "Stops watching: forgets the item's settings and recipe. Nothing is uninstalled" },
+	"remove-many": { effect: "destructive", describe: "Stops watching the rows: forgets their settings. Nothing is uninstalled" },
+	review: OPENS,
+	notes: OPENS,
+	"review-safe": OPENS,
+	settings: OPENS,
+	history: OPENS,
+	log: OPENS,
+	"dialog-done": OPENS,
+	// Discover
+	scan: { effect: "write", describe: "Only reads: lists what's installed and compares it with the last scan" },
+	monitor: { effect: "write", describe: "Starts watching and checks it now" },
+	"monitor-many": { effect: "write", describe: "Starts watching the rows and checks them now" },
+	"monitor-new": { effect: "write", describe: "Starts watching everything new since the last scan" },
+	// Runs and jobs
+	"run-cancel": STOPS_WORK,
+	cancel: STOPS_WORK,
+	"cancel-dialog-job": STOPS_WORK,
+	"run-dismiss": { effect: "view", describe: "Hides the run's card on this screen" },
+	"run-activity": OPENS,
+	"run-discover": OPENS,
+	"show-run": OPENS,
+	// Settings
+	"add-recipe": OPENS,
+	"recipe-save": { effect: "write", describe: "Adds the recipe. One an agent adds doesn't run until the person reviews its commands" },
+	"review-recipe": { effect: "view", agent: false },
+	"recipe-approve": { effect: "write", agent: false, describe: "Lets the recipe's commands run" },
+	"auto-updates-on": { effect: "write", describe: "Lets Upkeep install updates on its own, for items whose policy allows it" },
+	"auto-updates-off": { effect: "write", describe: "Stops automatic updates" },
+};
+
+/** Every form: the settings save as they change, the item dialog too; the recipe dialog is a draft until it's added. */
+export const FORMS: Record<string, FormDeclaration> = {
+	settings: { effect: "write" },
+	item: { effect: "write" },
+	recipe: { effect: "view" },
+};
 
 /** Each screen's search and filters, starting with nothing filtered. The SDK keeps them per instance. */
 export const VIEWS: Record<string, ViewDeclaration> = {
@@ -45,7 +106,7 @@ const day = (at: number) => {
 const when = (at?: number) => (at ? `${new Date(at).toLocaleString()} (${relative(at)})` : "—");
 const matches = (q: string | undefined, ...parts: (string | undefined)[]) => !q || parts.join(" ").toLowerCase().includes(q.toLowerCase());
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const BY: Record<string, string> = { you: "You", schedule: "Schedule", auto: "Automatic" };
+const BY: Record<string, string> = { you: "You", agent: "An agent", schedule: "Schedule", auto: "Automatic" };
 const active = (j: Job) => j.state === "running" || j.state === "queued";
 const selected = (view: View, filter: string) => view.filters[filter] ?? [];
 
@@ -90,7 +151,8 @@ export function statusOf(engine: Engine, it: Item): Status {
 	const checking = job ? { pulse: true, text: job.state === "running" ? "Checking…" : "Waiting to check…" } : null;
 	const missing = engine.discovered?.diff?.missing.includes(it.id);
 	let st: Status;
-	if (s.error) st = { section: "attention", tone: "danger", text: `Check failed (${s.failures}×): ${s.error}` };
+	if (!runnable(it)) st = { section: "attention", tone: "warning", text: it.reviewed ? "Its commands changed: review them before they run" : "Review its commands before they run" };
+	else if (s.error) st = { section: "attention", tone: "danger", text: `Check failed (${s.failures}×): ${s.error}` };
 	else if (s.eol?.past) st = { section: "attention", tone: "danger", text: "End of life: no more security fixes" };
 	else if (hasUpdate(it) && (s.blocked || s.needsAuth)) st = { section: "attention", tone: "warning", text: s.blocked ?? "Needs your password" };
 	else if (hasUpdate(it) && bulkUpdatable(it)) st = { section: "ready", tone: "warning", text: "Update available" };
@@ -134,6 +196,12 @@ export const UPDATE_ACTIONS: Action[] = [
 ];
 export const UPDATE_IDS = new Set(UPDATE_ACTIONS.map((a) => a.id));
 
+/** The update action a row offers now (its confirmation fits the item), or null when it offers none. */
+export function offeredUpdate(engine: Engine, it: Item): string | null {
+	const job = jobFor(engine, it.id);
+	return hasUpdate(it) && !it.state.blocked && !(job && job.type !== "check") ? updateActionFor(it) : null;
+}
+
 /** Which update action (and so which confirmation) fits this item. */
 export function updateActionFor(it: Item): string {
 	if (it.provider === "custom") return "update-own";
@@ -153,9 +221,9 @@ function jobDot(j: Job): { color: Tone; pulse?: boolean } {
 	return { color: j.tone ?? (j.state === "failed" ? "danger" : j.state === "cancelled" ? "muted" : "success") };
 }
 
-/** Runs started on this surface that are still going, or finished recently and not dismissed. */
-export function visibleRuns(engine: Engine, surface: string): Run[] {
-	return engine.runs.filter((r) => r.surface === surface && !r.dismissed && (!r.endedAt || Date.now() - r.endedAt < RUN_VISIBLE_MS)).slice(-3).reverse();
+/** Runs started on this surface that are still going, or finished recently and not dismissed in this instance. */
+export function visibleRuns(engine: Engine, surface: string, instance: string): Run[] {
+	return engine.runs.filter((r) => r.surface === surface && !r.dismissedIn?.includes(instance) && (!r.endedAt || Date.now() - r.endedAt < RUN_VISIBLE_MS)).slice(-3).reverse();
 }
 
 function runCard(engine: Engine, r: Run): Node {
@@ -211,7 +279,7 @@ function scanDiffNodes(engine: Engine, r: Run): Node[] {
 }
 
 // ── Updates (screen id: monitored) ───────────────────────────────────────
-export function monitored(engine: Engine, surface: string, view: View): Node {
+export function monitored(engine: Engine, surface: string, view: View, dialogs: Dialogs): Node {
 	const q = view.search;
 	const kinds = selected(view, "kind");
 	const all = engine.items.filter((it) => matches(q, it.name, it.location, it.provider, it.state.installed));
@@ -225,7 +293,7 @@ export function monitored(engine: Engine, surface: string, view: View): Node {
 	const attention = items.filter((it) => status.get(it.id)!.section === "attention").length;
 	const bits = [`${engine.items.length} watched`, updates.length ? plural(updates.length, "update") : "all up to date", attention ? `${attention} need${attention === 1 ? "s" : ""} you` : ""].filter(Boolean);
 	const kindFilter: Filter = { id: "kind", label: "Kind", icon: "shapes", options: KIND_ORDER.filter((k) => all.some((i) => i.kind === k)).map((k) => ({ value: k, label: KIND_LABEL[k], count: all.filter((i) => i.kind === k).length })), selected: kinds };
-	return page(surface, view, {
+	return page(engine, dialogs, surface, view, {
 		type: "page",
 		search: { placeholder: "Filter by name, folder, provider…" },
 		filters: engine.items.length ? [kindFilter] : undefined,
@@ -237,7 +305,7 @@ export function monitored(engine: Engine, surface: string, view: View): Node {
 				]
 			: [{ id: "scan", label: "Scan this Mac", icon: "radar", primary: true, disabled: engine.jobs.some((j) => j.type === "scan" && active(j)) }],
 		children: [
-			...visibleRuns(engine, surface).map((r) => runCard(engine, r)),
+			...visibleRuns(engine, surface, view.instance).map((r) => runCard(engine, r)),
 			{
 				type: "table",
 				id: "items",
@@ -261,6 +329,7 @@ export function monitored(engine: Engine, surface: string, view: View): Node {
 					{ id: "unpin", key: "p", label: "Unpin", icon: "pin-off", group: "item" },
 					{ id: "rollback", key: "r", label: "Roll back", icon: "undo-2", group: "item", confirm: "Go back to the version before the last update?" },
 					{ id: "remove", key: "x", label: "Stop watching", icon: "trash", tone: "destructive", confirm: "Stop watching this? Nothing is uninstalled." },
+					{ id: "review-recipe", label: "Review its commands…", icon: "file-search", inline: true, group: "update" },
 				],
 				bulkActions: [
 					{ id: "update-many", label: "Update", icon: "download", primary: true },
@@ -279,7 +348,8 @@ function itemRow(engine: Engine, it: Item, st: Status): Row {
 	const recipe = p?.recipe(it);
 	const job = jobFor(engine, it.id);
 	const canRollback = !!(s.previous && p?.rollback?.(it, s.previous));
-	const update = hasUpdate(it) && !s.blocked && !(job && job.type !== "check");
+	const update = offeredUpdate(engine, it);
+	const unreviewed = !runnable(it);
 	const recent = engine.audit.filter((e) => e.item === it.id && e.event !== "started").slice(-5).reverse();
 	const section: GroupLabel = { id: st.section, label: SECTIONS[st.section].label, icon: SECTIONS[st.section].icon, muted: st.section === "ok" || st.section === "held" };
 	return {
@@ -293,8 +363,9 @@ function itemRow(engine: Engine, it: Item, st: Status): Row {
 			checked: s.checkedAt ? { text: "", at: s.checkedAt, tone: "muted" } : { text: "never", tone: "muted" },
 		},
 		actions: [
-			...(update ? [updateActionFor(it)] : []),
-			"check",
+			...(unreviewed ? ["review-recipe"] : []),
+			...(update ? [update] : []),
+			...(unreviewed ? [] : ["check"]),
 			...(s.outdated && !update ? ["review"] : []),
 			...(!s.outdated ? ["notes"] : []),
 			"settings",
@@ -336,7 +407,7 @@ function itemRow(engine: Engine, it: Item, st: Status): Row {
 }
 
 // ── Discover ─────────────────────────────────────────────────────────────
-export function discover(engine: Engine, surface: string, view: View): Node {
+export function discover(engine: Engine, surface: string, view: View, dialogs: Dialogs): Node {
 	const q = view.search;
 	const d = engine.discovered;
 	const diff = d?.diff;
@@ -398,7 +469,7 @@ export function discover(engine: Engine, surface: string, view: View): Node {
 	const freshNew = [...added].filter((id) => !engine.item(id));
 	const errors = Object.entries(d?.errors ?? {});
 	const summary = scanning ? "Scanning this Mac…" : d ? [`${d.candidates.length} found ${relative(d.at)}`, errors.length ? `${errors.length} provider${errors.length > 1 ? "s" : ""} failed: ${errors.map(([p]) => provider(p)?.label ?? p).join(", ")}` : ""].filter(Boolean).join(" · ") : "";
-	return page(surface, view, {
+	return page(engine, dialogs, surface, view, {
 		type: "page",
 		search: { placeholder: "Filter by name, folder, provider…" },
 		summary,
@@ -407,7 +478,7 @@ export function discover(engine: Engine, surface: string, view: View): Node {
 			{ id: "scan", label: d ? "Scan again" : "Scan this Mac", icon: "radar", primary: !d, disabled: scanning },
 		],
 		children: [
-			...visibleRuns(engine, surface).map((r) => runCard(engine, r)),
+			...visibleRuns(engine, surface, view.instance).map((r) => runCard(engine, r)),
 			{
 				type: "table",
 				id: "candidates",
@@ -419,7 +490,7 @@ export function discover(engine: Engine, surface: string, view: View): Node {
 				rows: rows.map(({ sort: _, ...r }) => r),
 				actions: [
 					{ id: "monitor", key: "w", label: "Watch", icon: "eye", inline: true },
-					{ id: "remove", key: "x", label: "Stop watching", icon: "eye-off", inline: true },
+					{ id: "remove", key: "x", label: "Stop watching", icon: "eye-off", inline: true, confirm: "Stop watching this? Upkeep forgets its settings; nothing is uninstalled." },
 				],
 				bulkActions: [{ id: "monitor-many", label: "Watch selected", icon: "eye", primary: true }],
 				empty: scanning
@@ -494,7 +565,7 @@ function entryRow(engine: Engine, e: AuditEntry): Row {
 	};
 }
 
-export function activity(engine: Engine, surface: string, view: View): Node {
+export function activity(engine: Engine, surface: string, view: View, dialogs: Dialogs): Node {
 	const q = view.search;
 	const what = selected(view, "what");
 	const by = selected(view, "by");
@@ -537,7 +608,7 @@ export function activity(engine: Engine, surface: string, view: View): Node {
 	];
 	const next = engine.nextCheck();
 	const busy = engine.active().length;
-	return page(surface, view, {
+	return page(engine, dialogs, surface, view, {
 		type: "page",
 		search: { placeholder: "Filter the activity…" },
 		filters,
@@ -561,10 +632,10 @@ export function activity(engine: Engine, surface: string, view: View): Node {
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────
-export function settingsScreen(engine: Engine, surface: string, view: View): Node {
+export function settingsScreen(engine: Engine, surface: string, view: View, dialogs: Dialogs): Node {
 	const s = engine.settings;
 	const custom = engine.items.filter((i) => i.provider === "custom");
-	return page(surface, view, {
+	return page(engine, dialogs, surface, view, {
 		type: "page",
 		actions: [{ id: "add-recipe", label: "Add a custom recipe", icon: "plus" }],
 		children: [
@@ -580,26 +651,53 @@ export function settingsScreen(engine: Engine, surface: string, view: View): Nod
 				],
 			},
 			{
-				type: "form",
-				id: "settings",
+				type: "card",
+				id: "auto",
 				title: "Automatic updates",
 				description: "Off until you turn them on. Each item also needs a policy other than “Notify only”. Updates that need a password, quit a running app, update in their own app, or are your own commands never run automatically.",
-				fields: [
-					{ type: "switch", id: "autoUpdates", label: "Allow automatic updates", value: s.autoUpdates },
-					{ type: "switch", id: "acOnly", label: "Only on AC power", value: s.acOnly },
-					{ type: "select", id: "window", label: "When", value: s.window, options: [{ value: "any", label: "Any time" }, { value: "night", label: "At night (1:00–6:00)" }] },
+				// Turning them on asks first: from then on, Upkeep changes software without asking.
+				actions: [
+					s.autoUpdates
+						? { id: "auto-updates-off", label: "Allow automatic updates", checked: true }
+						: { id: "auto-updates-on", label: "Allow automatic updates", checked: false, confirm: AUTO_UPDATES_CONFIRM },
+				],
+				children: [
+					{
+						type: "form",
+						id: "settings",
+						fields: [
+							{ type: "switch", id: "acOnly", label: "Only on AC power", value: s.acOnly },
+							{ type: "select", id: "window", label: "When", value: s.window, options: [{ value: "any", label: "Any time" }, { value: "night", label: "At night (1:00–6:00)" }] },
+						],
+					},
 				],
 			},
 			{
 				type: "card",
 				title: "Custom recipes",
 				description: "Your own commands for things no provider covers. They run in a shell, only after you've reviewed them, and never automatically.",
-				children: custom.length ? [{ type: "list", id: "recipes", items: custom.map((c) => ({ id: c.id, title: c.name, subtitle: c.data.update, actions: [{ id: "remove", label: "Remove", icon: "trash", confirm: "Remove this recipe?" }] })) }] : [{ type: "text", text: "None yet.", tone: "muted" }],
+				children: custom.length
+					? [
+							{
+								type: "list",
+								id: "recipes",
+								items: custom.map((c) => ({
+									id: c.id,
+									title: c.name,
+									subtitle: runnable(c) ? c.data.update : `Not reviewed yet · ${c.data.update}`,
+									...(runnable(c) ? {} : { dot: "warning" as Tone }),
+									actions: [...(runnable(c) ? [] : [{ id: "review-recipe", label: "Review its commands…", icon: "file-search" }]), { id: "remove", label: "Remove", icon: "trash", confirm: "Remove this recipe?" }],
+								})),
+							},
+						]
+					: [{ type: "text", text: "None yet.", tone: "muted" }],
 			},
 			{ type: "text", text: `Data, audit log and job logs: ${tilde(engine.store.dir)}`, tone: "muted" },
 		],
 	});
 }
+
+export const AUTO_UPDATES_CONFIRM = "Allow automatic updates? From now on, Upkeep installs updates on its own schedule, without asking, for each item whose policy isn't “Notify only”. Updates that need a password, quit an app, update in their own app or are your own commands still never run on their own.";
 
 // ── quick view ───────────────────────────────────────────────────────────
 export function quick(engine: Engine): Node {
@@ -607,7 +705,7 @@ export function quick(engine: Engine): Node {
 	const updates = engine.updates();
 	const safe = updates.filter(bulkUpdatable);
 	const next = engine.nextCheck();
-	const mine = engine.runs.filter((r) => r.by !== "schedule" && !r.dismissed && (!r.endedAt || Date.now() - r.endedAt < RUN_VISIBLE_MS)).slice(-1);
+	const mine = engine.runs.filter((r) => r.by !== "schedule" && !r.dismissedIn?.includes(PERSON) && (!r.endedAt || Date.now() - r.endedAt < RUN_VISIBLE_MS)).slice(-1);
 	const running = engine.jobs.filter((j) => j.state === "running");
 	const attention = engine.items.filter((it) => statusOf(engine, it).section === "attention").length;
 	const children: Node[] = [
@@ -652,17 +750,14 @@ export function quick(engine: Engine): Node {
 }
 
 // ── dialogs ──────────────────────────────────────────────────────────────
-function page(surface: string, view: View, node: Extract<Node, { type: "page" }>): Node {
-	const d = ui.dialog;
-	// Dialogs come from the person's events and show on the person's screens only.
-	if (d && d.surface === surface && view.instance === PERSON) node.dialog = dialogNode(currentEngine!, d);
+function page(engine: Engine, dialogs: Dialogs, surface: string, view: View, node: Extract<Node, { type: "page" }>): Node {
+	// A dialog shows in the instance that opened it, on the screen it was opened on.
+	const d = dialogs.get(view.instance);
+	if (d && d.surface === surface) node.dialog = dialogNode(engine, d, view.instance);
 	return node;
 }
 
-let currentEngine: Engine | null = null;
-export const bindEngine = (e: Engine) => void (currentEngine = e);
-
-function dialogNode(engine: Engine, d: NonNullable<UI["dialog"]>): Dialog | undefined {
+function dialogNode(engine: Engine, d: OpenDialog, instance: string): Dialog | undefined {
 	switch (d.kind) {
 		case "review":
 			return reviewDialog(engine, d.review);
@@ -704,9 +799,23 @@ function dialogNode(engine: Engine, d: NonNullable<UI["dialog"]>): Dialog | unde
 			const entries = engine.audit.filter((e) => e.item === d.itemId && e.event !== "started").slice(-200).reverse();
 			return { id: "history", title: `${it?.name ?? "Item"}: history`, description: `${entries.length} events, newest first. Every check and update attempt is recorded.`, wide: true, children: [{ type: "log", id: "history-log", lines: entries.map((e) => ({ at: e.at, text: `${new Date(e.at).toLocaleDateString()}  ${EVENT[e.event].padEnd(9)} ${e.text}${e.by ? `  (${BY[e.by]})` : ""}`, tone: e.tone === "default" || e.tone === "info" ? undefined : e.tone })), empty: "Nothing yet." }] };
 		}
+		case "recipe-review": {
+			const it = engine.item(d.itemId);
+			if (!it || it.provider !== "custom") return undefined;
+			return {
+				id: "recipe-review",
+				title: `${it.name}: review its commands`,
+				description: it.reviewed ? "Its commands changed since you reviewed them." : "Added for you to review: nothing runs until you do. Read each command; Upkeep runs them in a shell exactly as shown.",
+				wide: true,
+				children: [{ type: "card", title: "What will run", tone: "warning", description: "Checks run on the schedule; the update runs only when you start it.", children: [{ type: "log", id: "recipe-review-cmds", lines: recipeLines(it.data) }] }],
+				actions: [{ id: "recipe-approve", label: "I've read them: allow", primary: true }],
+			};
+		}
 		case "recipe": {
 			const r = d.draft;
 			const ready = !!(r.name.trim() && r.version.trim() && r.latest.trim() && r.update.trim());
+			// An agent's draft is added unreviewed: the person reviews its commands before they run.
+			const agent = instance !== PERSON;
 			return {
 				id: "recipe",
 				title: "Add a custom recipe",
@@ -724,13 +833,15 @@ function dialogNode(engine: Engine, d: NonNullable<UI["dialog"]>): Dialog | unde
 							{ type: "text", id: "repo", label: "GitHub repository (optional)", value: r.repo, placeholder: "owner/repo — for release notes" },
 						],
 					},
-					{ type: "card", title: "What will run", tone: "warning", description: "Checks run on the schedule; the update runs only when you start it. Read them carefully.", children: [{ type: "log", id: "recipe-cmds", lines: [{ text: `# check: $ ${r.version || "…"}` }, { text: `# check: $ ${r.latest || "…"}` }, { text: `# update: $ ${r.update || "…"}`, tone: "warning" }] }] },
+					{ type: "card", title: "What will run", tone: "warning", description: agent ? "Added unreviewed: nothing runs until the person reviews these commands in Upkeep." : "Checks run on the schedule; the update runs only when you start it. Read them carefully.", children: [{ type: "log", id: "recipe-cmds", lines: recipeLines(r) }] },
 				],
-				actions: [{ id: "recipe-save", label: "I've read them: add", primary: true, disabled: !ready }],
+				actions: [{ id: "recipe-save", label: agent ? "Add for review" : "I've read them: add", primary: true, disabled: !ready }],
 			};
 		}
 	}
 }
+
+const recipeLines = (r: Record<string, string>): LogLine[] => [{ text: `# check: $ ${r.version || "…"}` }, { text: `# check: $ ${r.latest || "…"}` }, { text: `# update: $ ${r.update || "…"}`, tone: "warning" }];
 
 /** "Update N ready", reviewed: what will run, and what's left out and why. */
 function bulkDialog(engine: Engine): Dialog {

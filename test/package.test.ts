@@ -5,6 +5,7 @@ import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
 import { parsePackageManifest } from "@toolbelt/sdk/package";
 import { validateMessage } from "@toolbelt/sdk/validation";
+import { PROTOCOL_VERSION } from "@toolbelt/sdk/protocol";
 import { customCandidate } from "../providers/custom";
 
 const root = mkdtempSync(join(tmpdir(), "upkeep-package-"));
@@ -47,7 +48,7 @@ async function launch(mode: "active" | "probe" = "active", extraEnv: Record<stri
    }
   }
  })();
- send({ type: "hello", protocol: 2, plugin: { id: "upkeep" }, host: { name: "contract-test", version: "0.1.0" } });
+ send({ type: "hello", protocol: PROTOCOL_VERSION, plugin: { id: "upkeep" }, host: { name: "contract-test", version: "0.1.0" } });
  await until(() => messages.some((m) => m.type === "ready"));
  for (const surface of ["monitored", "discover", "activity", "settings"].map((s) => `screen:${s}`).concat("quick")) send({ type: "open", surface, instance: PERSON });
  await until(() => trees.size === 5);
@@ -62,7 +63,8 @@ async function stop() {
  }
  await p.exited;
 }
-const event = (surface: string, name: string, payload?: unknown) => send({ type: "event", surface, instance: PERSON, name, payload });
+let eventId = 0;
+const event = (surface: string, name: string, payload?: unknown) => send({ type: "event", id: `e${++eventId}`, surface, instance: PERSON, name, payload, origin: "person" });
 
 beforeAll(async () => {
  const build = Bun.spawn([process.execPath, "run", "build"], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
@@ -85,7 +87,7 @@ afterAll(async () => { await stop(); rmSync(root, { recursive: true, force: true
 
 test("clean release archive: all screens, opt-in, reversible Discover, scratch update, logs and restart", async () => {
  await launch();
- expect(messages.find((m) => m.type === "hello")).toMatchObject({ protocol: 2, capabilities: expect.arrayContaining(["ui.core", "ui.action-key", "lifecycle"]) });
+ expect(messages.find((m) => m.type === "hello")).toMatchObject({ protocol: 3, capabilities: expect.arrayContaining(["ui.core", "ui.action-key", "lifecycle"]) });
  expect(JSON.stringify(trees.get("screen:monitored"))).toContain("Nothing watched yet");
  for (const file of ["items.json", "discovered.json", "audit.jsonl"]) expect(existsSync(join(data, file))).toBe(false);
  await stop();
@@ -96,7 +98,9 @@ test("clean release archive: all screens, opt-in, reversible Discover, scratch u
  for (const action of ["monitor", "remove", "monitor", "remove"]) {
   const table = findTable(trees.get("screen:discover"));
   expect(table.rows[0].actions).toEqual([action]);
-  expect(table.actions.find((a: any) => a.id === action).confirm).toBeUndefined();
+  // Watching doesn't ask; stopping does (it forgets the item's settings).
+  if (action === "monitor") expect(table.actions.find((a: any) => a.id === action).confirm).toBeUndefined();
+  else expect(table.actions.find((a: any) => a.id === action).confirm).toBeString();
   event("screen:discover", action, { rowId: candidate.id });
   await until(() => findTable(trees.get("screen:discover")).rows[0].actions[0] !== action);
  }
@@ -210,7 +214,7 @@ test("views: the SDK applies the person's search and filters, agents read with t
  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
  rmSync(join(data, "discovered.json"), { force: true });
  await launch();
- expect(messages.find((m) => m.type === "hello").views).toEqual({
+ expect(messages.find((m) => m.type === "hello").declarations.views).toEqual({
   "screen:monitored": { search: true, filters: { kind: [] } },
   "screen:discover": { search: true },
   "screen:activity": { search: true, filters: { what: [], by: [] } },
@@ -252,5 +256,22 @@ test("views: the SDK applies the person's search and filters, agents read with t
  for (const instance of ["agent:one", "agent:two"]) send({ type: "close", surface: "screen:monitored", instance });
  event("screen:monitored", "dialog-close");
  await until(() => trees.get("screen:monitored").dialog === undefined);
+
+ // An agent acting adds a recipe in its own instance: every event gets a result, and the recipe
+ // isn't marked reviewed, so nothing runs until the person reviews it.
+ const acting = "agent:s1:settings";
+ send({ type: "open", surface: "screen:settings", instance: acting });
+ const agentEvent = (name: string, payload?: unknown) => { const id = `a${++eventId}`; send({ type: "event", id, surface: "screen:settings", instance: acting, name, payload, origin: "agent", agent: "Package test" }); return id; };
+ const result = (id: string) => messages.find((m) => m.type === "result" && m.id === id);
+ agentEvent("add-recipe");
+ await until(() => agentTrees.get(`screen:settings|${acting}`)?.dialog?.id === "recipe");
+ expect(trees.get("screen:settings").dialog).toBeUndefined();
+ for (const [field, value] of Object.entries({ name: "Agent fixture", version: "/bin/echo 1.0.0", latest: "/bin/echo 2.0.0", update: "/usr/bin/true" })) agentEvent("field", { form: "recipe", field, value });
+ const save = agentEvent("recipe-save", { dialog: "recipe" });
+ await until(() => !!result(save));
+ expect(result(save)).toEqual({ type: "result", id: save, handled: true, data: { item: "custom:agent-fixture", reviewed: false } });
+ const saved = JSON.parse(readFileSync(join(data, "items.json"), "utf8")).find((i: any) => i.id === "custom:agent-fixture");
+ expect(saved.reviewed).toBeUndefined();
+ expect(saved.state.checkedAt).toBeUndefined();
  await stop();
 });

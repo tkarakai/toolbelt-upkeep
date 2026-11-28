@@ -50,7 +50,8 @@ Do not substitute npm/yarn/pnpm, Node test runners or npx. Run checks appropriat
 for provider/runtime/package changes, run the full checks and exercise the actual archive.
 
 Provider behavior belongs in `providers/` and provider tests; shared safety/scheduling in
-`lib/engine.ts`; UI definitions in `ui.ts`; event handling in `index.ts`. Preserve package tests
+`lib/engine.ts`; UI definitions and action/form declarations in `ui.ts`; event handling in
+`plugin.ts`. Declare every new action id with an honest effect and test it under `fakeHost`. Preserve package tests
 that execute without a sibling checkout or ambient dependencies. Use Plugin Tester for screen,
 quick-view, dialog, keyboard, theme, narrow-layout and lifecycle checks with fake resources.
 

@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- Requires ToolBelt 0.10.0 or newer (plugin protocol 3).
+- AI agents can now act on Upkeep through ToolBelt, as you would: check, scan, watch, update,
+  skip, pin, change settings and add recipes, each in screens and dialogs of their own that never
+  change yours. ToolBelt asks you first on its own screens. Updates, rollbacks, cancelling work
+  and Stop watching ask every time; other changes ask unless you let that agent make changes for
+  a while. Agents can't use **Run in Terminal**. Activity shows what an agent started as
+  "An agent".
+- Turning on automatic updates asks first, for you as well as for agents.
+- Stop watching in Discover asks first, as it does in Updates: Upkeep forgets the item's
+  settings (nothing is uninstalled).
+- A custom recipe an agent adds isn't trusted: it isn't checked or run until you review its
+  commands with **Review its commands…** on its row or in Settings.
+- A run started by an agent tells you when it finishes, even while the agent has the screen
+  open. Dismissing a run's card only hides it on your screens.
+- An update starts only if it's still the kind the row offers, so the confirmation you saw (an
+  app quitting, a major version, a password) is the one that applies.
 
 ## 0.3.0 — 2026-11-26
 - Requires ToolBelt 0.6.0 or newer (plugin protocol 2); uses SDK 0.4.0.

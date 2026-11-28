@@ -11,7 +11,10 @@ import { setProviderSettings } from "../providers/shared";
 import { gitPrecheck } from "../providers/git";
 import { recipeHash } from "../providers/custom";
 
-export type By = "you" | "schedule" | "auto";
+/** Who started something: the person, an agent acting for them, the schedule or an automatic update. */
+export type By = "you" | "agent" | "schedule" | "auto";
+/** Started by the person, directly or through an agent: interactive, never unattended. */
+export const interactive = (by: By) => by === "you" || by === "agent";
 export type JobType = "scan" | "check" | "update" | "rollback";
 export type LogLine = { text: string; at?: number; tone?: Tone };
 export type Job = {
@@ -55,7 +58,8 @@ export type Run = {
 	diff?: ScanDiff;
 	/** Where it was started (a surface), for showing its progress there. */
 	surface?: string;
-	dismissed?: boolean;
+	/** Instances that dismissed its card. */
+	dismissedIn?: string[];
 };
 
 const MAX_RUNNING = 3;
@@ -83,6 +87,9 @@ export function stepOf(item: Item): Change {
 export const hasUpdate = (item: Item) => item.state.outdated && !item.pinned && !(item.skip && item.state.latest === item.skip);
 
 /** Bulk updates never cross a major version or quit an app without its individual review. */
+/** Custom recipes run only once the person reviewed their exact commands. */
+export const runnable = (item: Item) => item.provider !== "custom" || item.reviewed === recipeHash(item.data);
+
 export const bulkUpdatable = (item: Item) => hasUpdate(item) && !item.state.blocked && !item.state.needsAuth && !item.data.auth && item.kind !== "app" && stepOf(item) !== "major" && !["sparkle", "go", "custom"].includes(item.provider);
 
 /**
@@ -179,12 +186,12 @@ export class Engine {
 		}
 	}
 
-	setSettings(patch: Partial<Settings>) {
+	setSettings(patch: Partial<Settings>, by: By = "you") {
 		const before = this.settings;
 		this.settings = { ...this.settings, ...patch };
 		this.store.saveSettings(this.settings);
 		setProviderSettings(this.settings);
-		for (const [k, v] of Object.entries(patch)) if ((before as Record<string, unknown>)[k] !== v) this.record({ event: "changed", text: `Setting ${k}: ${String((before as Record<string, unknown>)[k])} → ${String(v)}`, tone: "info", by: "you" });
+		for (const [k, v] of Object.entries(patch)) if ((before as Record<string, unknown>)[k] !== v) this.record({ event: "changed", text: `Setting ${k}: ${String((before as Record<string, unknown>)[k])} → ${String(v)}`, tone: "info", by });
 		if ("intervalHours" in patch) for (const it of this.items) if (!it.intervalHours && it.state.checkedAt) it.state.nextAt = it.state.checkedAt + jitter(this.settings.intervalHours * HOUR);
 		this.save();
 		this.changed();
@@ -196,36 +203,38 @@ export class Engine {
 	siblings = (it: Item | Candidate) => this.items.filter((o) => o.identity === it.identity && o.id !== it.id);
 
 	// ── items ─────────────────────────────────────────────────────────────
-	add(cands: Candidate[], extra: Partial<Item> = {}) {
+	/** Starts watching; checks the new items in one run (recipes only once reviewed). */
+	add(cands: Candidate[], extra: Partial<Item> = {}, by: By = "you"): Item[] {
 		const added: Item[] = [];
 		for (const c of cands) {
 			if (this.item(c.id)) continue;
 			const it: Item = { ...c, addedAt: Date.now(), policy: "notify", ...extra, state: { installed: c.installed, outdated: false, failures: 0, nextAt: Date.now() } };
 			this.items.push(it);
 			added.push(it);
-			this.record({ event: "added", item: it.id, name: it.name, text: `Now watching ${it.name} (${provider(it.provider)?.label ?? it.provider})`, tone: "info", by: "you" });
+			this.record({ event: "added", item: it.id, name: it.name, text: `Now watching ${it.name} (${provider(it.provider)?.label ?? it.provider})`, tone: "info", by });
 		}
 		this.save();
-		this.batch("check", added, "you", added.length === 1 ? `Check ${added[0].name}` : `Check ${added.length} newly watched`);
+		const check = added.filter(runnable);
+		if (check.length) this.batch("check", check, by, check.length === 1 ? `Check ${check[0].name}` : `Check ${check.length} newly watched`);
 		this.changed();
 		return added;
 	}
 
-	remove(id: string) {
+	remove(id: string, by: By = "you") {
 		const it = this.item(id);
 		if (!it) return;
 		for (const j of this.jobs) if (j.itemId === id && (j.state === "queued" || j.state === "running")) this.cancel(j.id);
 		this.items = this.items.filter((i) => i.id !== id);
-		this.record({ event: "removed", item: id, name: it.name, text: `Stopped watching ${it.name}`, tone: "muted", by: "you" });
+		this.record({ event: "removed", item: id, name: it.name, text: `Stopped watching ${it.name}`, tone: "muted", by });
 		this.save();
 		this.changed();
 	}
 
-	update(id: string, patch: Partial<Item>, what: string) {
+	update(id: string, patch: Partial<Item>, what: string, by: By = "you") {
 		const it = this.item(id);
 		if (!it) return;
 		Object.assign(it, patch);
-		this.record({ event: "changed", item: id, name: it.name, text: what, tone: "info", by: "you" });
+		this.record({ event: "changed", item: id, name: it.name, text: what, tone: "info", by });
 		this.save();
 		this.changed();
 	}
@@ -511,7 +520,7 @@ export class Engine {
 		const target = j.target ?? it.state.latest;
 		if (!target) throw new Error("No newer version known: check first");
 		const from = it.state.installed;
-		const you = j.by === "you";
+		const you = interactive(j.by);
 		// While you're here, a password prompt can reach you; unattended, it fails fast.
 		const env = you ? { SUDO_ASKPASS: this.askpass, UPKEEP_ASKPASS_PROMPT: `Upkeep needs your administrator password to update ${it.name}.` } : {};
 		const ctx = this.ctx(j, env);
@@ -632,11 +641,11 @@ export class Engine {
 
 	// ── schedule ──────────────────────────────────────────────────────────
 	tick(now = Date.now()) {
-		const due = this.items.filter((it) => it.state.nextAt <= now);
+		const due = this.items.filter((it) => it.state.nextAt <= now && runnable(it));
 		if (due.length) this.batch("check", due, "schedule", "Scheduled check");
 	}
 
-	nextCheck = () => this.items.reduce<number | undefined>((m, it) => (m === undefined || it.state.nextAt < m ? it.state.nextAt : m), undefined);
+	nextCheck = () => this.items.filter(runnable).reduce<number | undefined>((m, it) => (m === undefined || it.state.nextAt < m ? it.state.nextAt : m), undefined);
 	updates = () => this.items.filter(hasUpdate);
 	needsYou = () => this.items.filter((it) => hasUpdate(it) && (it.state.blocked || it.state.needsAuth));
 	active = () => this.jobs.filter((j) => j.state === "running" || j.state === "queued");
